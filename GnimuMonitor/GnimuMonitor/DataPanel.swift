@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct DataPanel: View {
-    let packet: RaceBoxPacket?
+    let packet: GnimuPacket?
 
     var body: some View {
         ScrollView {
@@ -51,7 +51,7 @@ struct DataPanel: View {
         }
     }
 
-    private func utcString(_ p: RaceBoxPacket) -> String {
+    private func utcString(_ p: GnimuPacket) -> String {
         let validDate = (p.validityFlags & 0x01) != 0
         let validTime = (p.validityFlags & 0x02) != 0
         let datePart = validDate

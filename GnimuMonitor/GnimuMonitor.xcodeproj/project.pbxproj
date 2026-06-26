@@ -7,26 +7,26 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		832C891C2FD6543C007AE902 /* RaceBoxMonitor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RaceBoxMonitor.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		832C891C2FD6543C007AE902 /* GnimuMonitor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GnimuMonitor.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		832C89352FD65EF9007AE902 /* Exceptions for "RaceBoxMonitor" folder in "RaceBoxMonitor" target */ = {
+		832C89352FD65EF9007AE902 /* Exceptions for "GnimuMonitor" folder in "GnimuMonitor" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = 832C891B2FD6543C007AE902 /* RaceBoxMonitor */;
+			target = 832C891B2FD6543C007AE902 /* GnimuMonitor */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		832C891E2FD6543C007AE902 /* RaceBoxMonitor */ = {
+		832C891E2FD6543C007AE902 /* GnimuMonitor */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				832C89352FD65EF9007AE902 /* Exceptions for "RaceBoxMonitor" folder in "RaceBoxMonitor" target */,
+				832C89352FD65EF9007AE902 /* Exceptions for "GnimuMonitor" folder in "GnimuMonitor" target */,
 			);
-			path = RaceBoxMonitor;
+			path = GnimuMonitor;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -45,7 +45,7 @@
 		832C89132FD6543C007AE902 = {
 			isa = PBXGroup;
 			children = (
-				832C891E2FD6543C007AE902 /* RaceBoxMonitor */,
+				832C891E2FD6543C007AE902 /* GnimuMonitor */,
 				832C891D2FD6543C007AE902 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -53,7 +53,7 @@
 		832C891D2FD6543C007AE902 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				832C891C2FD6543C007AE902 /* RaceBoxMonitor.app */,
+				832C891C2FD6543C007AE902 /* GnimuMonitor.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -61,9 +61,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		832C891B2FD6543C007AE902 /* RaceBoxMonitor */ = {
+		832C891B2FD6543C007AE902 /* GnimuMonitor */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 832C89272FD6543D007AE902 /* Build configuration list for PBXNativeTarget "RaceBoxMonitor" */;
+			buildConfigurationList = 832C89272FD6543D007AE902 /* Build configuration list for PBXNativeTarget "GnimuMonitor" */;
 			buildPhases = (
 				832C89182FD6543C007AE902 /* Sources */,
 				832C89192FD6543C007AE902 /* Frameworks */,
@@ -74,13 +74,13 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				832C891E2FD6543C007AE902 /* RaceBoxMonitor */,
+				832C891E2FD6543C007AE902 /* GnimuMonitor */,
 			);
-			name = RaceBoxMonitor;
+			name = GnimuMonitor;
 			packageProductDependencies = (
 			);
-			productName = RaceBoxMonitor;
-			productReference = 832C891C2FD6543C007AE902 /* RaceBoxMonitor.app */;
+			productName = GnimuMonitor;
+			productReference = 832C891C2FD6543C007AE902 /* GnimuMonitor.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -98,7 +98,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 832C89172FD6543C007AE902 /* Build configuration list for PBXProject "RaceBoxMonitor" */;
+			buildConfigurationList = 832C89172FD6543C007AE902 /* Build configuration list for PBXProject "GnimuMonitor" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -112,7 +112,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				832C891B2FD6543C007AE902 /* RaceBoxMonitor */,
+				832C891B2FD6543C007AE902 /* GnimuMonitor */,
 			);
 		};
 /* End PBXProject section */
@@ -275,8 +275,8 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = RaceBoxMonitor/Info.plist;
-				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "RaceBox Monitor needs Bluetooth to connect to your RaceBox emulator device.";
+				INFOPLIST_FILE = GnimuMonitor/Info.plist;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Gnimu Monitor needs Bluetooth to connect to your Gnimu emulator device.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -292,7 +292,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.5;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = us.c20d.RaceBoxMonitor;
+				PRODUCT_BUNDLE_IDENTIFIER = us.c20d.GnimuMonitor;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
@@ -332,8 +332,8 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = RaceBoxMonitor/Info.plist;
-				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "RaceBox Monitor needs Bluetooth to connect to your RaceBox emulator device.";
+				INFOPLIST_FILE = GnimuMonitor/Info.plist;
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Gnimu Monitor needs Bluetooth to connect to your Gnimu emulator device.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -349,7 +349,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.5;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = us.c20d.RaceBoxMonitor;
+				PRODUCT_BUNDLE_IDENTIFIER = us.c20d.GnimuMonitor;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
@@ -369,7 +369,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		832C89172FD6543C007AE902 /* Build configuration list for PBXProject "RaceBoxMonitor" */ = {
+		832C89172FD6543C007AE902 /* Build configuration list for PBXProject "GnimuMonitor" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				832C89252FD6543D007AE902 /* Debug */,
@@ -378,7 +378,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		832C89272FD6543D007AE902 /* Build configuration list for PBXNativeTarget "RaceBoxMonitor" */ = {
+		832C89272FD6543D007AE902 /* Build configuration list for PBXNativeTarget "GnimuMonitor" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				832C89282FD6543D007AE902 /* Debug */,

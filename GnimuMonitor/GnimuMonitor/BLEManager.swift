@@ -17,7 +17,7 @@ class BLEManager: NSObject, ObservableObject {
     @Published var selectedPeripheral: CBPeripheral?
     @Published var isConnected = false
     @Published var isScanning = false
-    @Published var latestPacket: RaceBoxPacket?
+    @Published var latestPacket: GnimuPacket?
     @Published var centralStateDescription = "Initializing…"
 
     override init() {
@@ -52,13 +52,13 @@ class BLEManager: NSObject, ObservableObject {
     }
 
     private func processBuffer() {
-        var newestPacket: RaceBoxPacket?
+        var newestPacket: GnimuPacket?
         while buffer.count >= 88 {
             guard let syncOffset = findSync() else { buffer.removeAll(); return }
             if syncOffset > 0 { buffer.removeFirst(syncOffset) }
             guard buffer.count >= 88 else { break }
             let candidate = Data(buffer[0..<88])
-            if let packet = RaceBoxPacket.parse(from: candidate) {
+            if let packet = GnimuPacket.parse(from: candidate) {
                 newestPacket = packet
                 buffer.removeFirst(88)
             } else {

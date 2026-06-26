@@ -2,7 +2,7 @@ import SwiftUI
 import MapKit
 
 struct MapPanel: View {
-    let packet: RaceBoxPacket?
+    let packet: GnimuPacket?
 
     @State private var position: MapCameraPosition = .automatic
     @State private var follow = true

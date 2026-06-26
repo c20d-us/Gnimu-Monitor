@@ -16,9 +16,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "832C891B2FD6543C007AE902"
-               BuildableName = "RaceBoxMonitor.app"
-               BlueprintName = "RaceBoxMonitor"
-               ReferencedContainer = "container:RaceBoxMonitor.xcodeproj">
+               BuildableName = "GnimuMonitor.app"
+               BlueprintName = "GnimuMonitor"
+               ReferencedContainer = "container:GnimuMonitor.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -46,9 +46,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "832C891B2FD6543C007AE902"
-            BuildableName = "RaceBoxMonitor.app"
-            BlueprintName = "RaceBoxMonitor"
-            ReferencedContainer = "container:RaceBoxMonitor.xcodeproj">
+            BuildableName = "GnimuMonitor.app"
+            BlueprintName = "GnimuMonitor"
+            ReferencedContainer = "container:GnimuMonitor.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -63,9 +63,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "832C891B2FD6543C007AE902"
-            BuildableName = "RaceBoxMonitor.app"
-            BlueprintName = "RaceBoxMonitor"
-            ReferencedContainer = "container:RaceBoxMonitor.xcodeproj">
+            BuildableName = "GnimuMonitor.app"
+            BlueprintName = "GnimuMonitor"
+            ReferencedContainer = "container:GnimuMonitor.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

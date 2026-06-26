@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct GaugesPanel: View {
-    let packet: RaceBoxPacket?
+    let packet: GnimuPacket?
 
     var body: some View {
         HStack(spacing: 0) {
