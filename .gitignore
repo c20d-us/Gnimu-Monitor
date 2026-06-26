@@ -1,1 +1,21 @@
 .DS_Store
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+
+# Archives & indexes
+*.ipa
+*.dSYM.zip
+*.dSYM
+Index.noindex/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# CocoaPods (if used)
+Pods/
