@@ -24,6 +24,15 @@ struct MapPanel: View {
     @State private var follow = true
     @State private var lastCameraUpdate: Date = .distantPast
 
+    // Camera height when following. Backed off from max zoom so a little
+    // surrounding road/context stays visible. Adjusted by the +/- controls.
+    @State private var zoomDistance: CLLocationDistance = 800
+    @State private var currentCenter = CLLocationCoordinate2D(latitude: 0, longitude: 0)
+    @State private var satellite = false
+
+    private let minDistance: CLLocationDistance = 80
+    private let maxDistance: CLLocationDistance = 20000
+
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Map(position: $position) {
@@ -38,34 +47,59 @@ struct MapPanel: View {
                 let now = Date()
                 guard now.timeIntervalSince(lastCameraUpdate) >= 0.2 else { return }
                 lastCameraUpdate = now
-                position = .camera(MapCamera(
-                    centerCoordinate: packet.coordinate,
-                    distance: 300,
-                    heading: 0,
-                    pitch: 0
-                ))
+                position = .camera(cameraFor(packet.coordinate))
             }
+            .onMapCameraChange { context in
+                currentCenter = context.camera.centerCoordinate
+            }
+            .mapStyle(satellite ? .hybrid : .standard)
 
-            Button {
-                follow.toggle()
-                if follow, let packet, packet.hasValidFix {
-                    position = .camera(MapCamera(
-                        centerCoordinate: packet.coordinate,
-                        distance: 300,
-                        heading: 0,
-                        pitch: 0
-                    ))
+            VStack(spacing: 8) {
+                mapControl(systemName: satellite ? "map" : "globe.americas.fill") {
+                    satellite.toggle()
                 }
-            } label: {
-                Image(systemName: follow ? "location.fill" : "location")
-                    .padding(8)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                .help(satellite ? "Show standard map" : "Show satellite imagery")
+
+                mapControl(systemName: follow ? "location.fill" : "location") {
+                    follow.toggle()
+                    if follow, let packet, packet.hasValidFix {
+                        position = .camera(cameraFor(packet.coordinate))
+                    }
+                }
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                .help(follow ? "Following — click to unlock map" : "Click to follow device")
+
+                VStack(spacing: 0) {
+                    mapControl(systemName: "plus") { zoom(by: 0.5) }
+                    Divider().frame(width: 28)
+                    mapControl(systemName: "minus") { zoom(by: 2.0) }
+                }
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
             }
-            .buttonStyle(.plain)
             .padding(10)
-            .help(follow ? "Following — click to unlock map" : "Click to follow device")
         }
         .onTapGesture { follow = false }
+    }
+
+    private func cameraFor(_ center: CLLocationCoordinate2D) -> MapCamera {
+        MapCamera(centerCoordinate: center, distance: zoomDistance, heading: 0, pitch: 0)
+    }
+
+    private func zoom(by factor: Double) {
+        zoomDistance = min(max(zoomDistance * factor, minDistance), maxDistance)
+        let center = (follow ? packet?.coordinate : nil) ?? currentCenter
+        position = .camera(cameraFor(center))
+    }
+
+    @ViewBuilder
+    private func mapControl(systemName: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

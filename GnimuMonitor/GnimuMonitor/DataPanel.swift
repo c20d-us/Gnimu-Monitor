@@ -18,46 +18,44 @@ import SwiftUI
 
 struct DataPanel: View {
     let packet: GnimuPacket?
+    @AppStorage("speedUnit") private var speedUnit: SpeedUnit = .kmh
 
     var body: some View {
         ScrollView {
             if let p = packet {
-                Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 3) {
-                    sectionHeader("Position")
-                    row("Latitude",    String(format: "%.7f °", p.latitude))
-                    row("Longitude",   String(format: "%.7f °", p.longitude))
-                    row("Alt MSL",     String(format: "%.1f m", p.heightMSL))
-                    row("Alt WGS84",   String(format: "%.1f m", p.heightEllipsoid))
-                    row("H Accuracy",  String(format: "%.2f m", p.hAcc))
-                    row("V Accuracy",  String(format: "%.2f m", p.vAcc))
+                VStack(spacing: 12) {
+                    section("Position") {
+                        row("Latitude",                 String(format: "%.7f °", p.latitude))
+                        row("Longitude",                String(format: "%.7f °", p.longitude))
+                        row("Altitude Above Sea Level", String(format: "%.1f m", p.heightMSL))
+                        row("Horizontal Accuracy",      String(format: "%.2f m", p.hAcc))
+                        row("Vertical Accuracy",        String(format: "%.2f m", p.vAcc))
+                    }
 
-                    sectionHeader("Motion")
-                    row("Speed",       String(format: "%.1f km/h", p.speedKmh))
-                    row("Heading",     String(format: "%@ %.2f °", p.headingCardinal, p.headingOfMotion))
-                    row("Spd Acc",     String(format: "%.2f m/s", p.speedAccuracy))
-                    row("Hdg Acc",     String(format: "%.2f °", p.headingAccuracy))
+                    section("Motion") {
+                        row("Ground Speed",     String(format: "%.1f %@", speedUnit.value(fromKmh: p.speedKmh), speedUnit.label))
+                        row("Heading",          String(format: "%@ %.2f °", p.headingCardinal, p.headingOfMotion))
+                        row("Speed Accuracy",   String(format: "%.2f m/s", p.speedAccuracy))
+                        row("Heading Accuracy", String(format: "%.2f °", p.headingAccuracy))
+                    }
 
-                    sectionHeader("GNSS Status")
-                    row("Fix",         p.fixTypeString)
-                    row("Satellites",  "\(p.numSV)")
-                    row("pDOP",        String(format: "%.2f", p.pDOP))
-                    row("Battery",     "\(p.battery) %")
+                    section("IMU") {
+                        row("Lateral Acceleration",      String(format: "%.3f g", p.accelX))
+                        row("Longitudinal Acceleration", String(format: "%.3f g", p.accelY))
+                        row("Vertical Acceleration",     String(format: "%.3f g", p.accelZ))
+                        row("Roll Rate",                 String(format: "%.2f °/s", p.gyroX))
+                        row("Pitch Rate",                String(format: "%.2f °/s", p.gyroY))
+                        row("Yaw Rate",                  String(format: "%.2f °/s", p.gyroZ))
+                    }
 
-                    sectionHeader("IMU")
-                    row("Accel X",     String(format: "%.3f g", p.accelX))
-                    row("Accel Y",     String(format: "%.3f g", p.accelY))
-                    row("Accel Z",     String(format: "%.3f g", p.accelZ))
-                    row("Gyro X",      String(format: "%.2f °/s", p.gyroX))
-                    row("Gyro Y",      String(format: "%.2f °/s", p.gyroY))
-                    row("Gyro Z",      String(format: "%.2f °/s", p.gyroZ))
-
-                    sectionHeader("Time")
-                    row("UTC", utcString(p))
-                    row("iTOW",        "\(p.iTOW) ms")
-                    row("Time Acc",    "\(p.timeAccuracy) ns")
+                    section("Time") {
+                        row("UTC Date",          utcDateString(p))
+                        row("UTC Time",          utcTimeString(p))
+                        row("GNSS Time of Week", "\(p.iTOW) ms")
+                        row("Time Accuracy",     "\(p.timeAccuracy) ns")
+                    }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(12)
             } else {
                 Text("No data — connect to a device")
                     .foregroundStyle(.secondary)
@@ -67,39 +65,50 @@ struct DataPanel: View {
         }
     }
 
-    private func utcString(_ p: GnimuPacket) -> String {
-        let validDate = (p.validityFlags & 0x01) != 0
-        let validTime = (p.validityFlags & 0x02) != 0
-        let datePart = validDate
-            ? String(format: "%04d-%02d-%02d", p.year, p.month, p.day)
-            : "date invalid"
-        let timePart = validTime
-            ? String(format: "%02d:%02d:%02d", p.hour, p.minute, p.second)
-            : "time invalid"
-        return "\(datePart)  \(timePart)"
-    }
-
-    private func sectionHeader(_ title: String) -> some View {
-        GridRow {
+    /// One titled, light-gray rounded card: label at top-left, rows centered.
+    @ViewBuilder
+    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.caption)
                 .fontWeight(.semibold)
-                .foregroundStyle(.secondary)
-                .gridCellColumns(2)
-                .padding(.top, 8)
+                .foregroundStyle(.primary)
+
+            VStack(spacing: 3) {
+                content()
+            }
+            .frame(maxWidth: .infinity)
         }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.gray.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func utcDateString(_ p: GnimuPacket) -> String {
+        let validDate = (p.validityFlags & 0x01) != 0
+        return validDate
+            ? String(format: "%04d-%02d-%02d", p.year, p.month, p.day)
+            : "invalid"
+    }
+
+    private func utcTimeString(_ p: GnimuPacket) -> String {
+        let validTime = (p.validityFlags & 0x02) != 0
+        return validTime
+            ? String(format: "%02d:%02d:%02d", p.hour, p.minute, p.second)
+            : "invalid"
     }
 
     private func row(_ label: String, _ value: String) -> some View {
-        GridRow {
+        HStack(spacing: 8) {
             Text(label)
                 .foregroundStyle(.secondary)
                 .font(.caption)
-                .gridColumnAlignment(.trailing)
+            Spacer(minLength: 12)
+            // Pinned to the trailing edge, so a changing value width grows
+            // leftward and the right edge never moves — no jitter.
             Text(value)
                 .font(.caption)
                 .fontDesign(.monospaced)
-                .gridColumnAlignment(.leading)
         }
     }
 }

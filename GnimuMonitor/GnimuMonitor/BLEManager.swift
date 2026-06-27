@@ -18,20 +18,47 @@ import Foundation
 import CoreBluetooth
 import Combine
 
+/// A device seen during a scan, with the bookkeeping needed to age it out
+/// once it stops advertising. CoreBluetooth has no "disappeared" callback,
+/// so freshness is inferred from how recently we last heard an advertisement.
+struct DiscoveredDevice: Identifiable {
+    let peripheral: CBPeripheral
+    var rssi: Int
+    var lastSeen: Date
+    /// True once the device hasn't advertised for a while: shown dimmed and
+    /// not connectable, but kept briefly in case it comes back.
+    var isStale: Bool = false
+
+    var id: UUID { peripheral.identifier }
+    var name: String { peripheral.name ?? peripheral.identifier.uuidString }
+}
+
 class BLEManager: NSObject, ObservableObject {
 
     private let serviceUUID = CBUUID(string: "6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
     private let txCharUUID  = CBUUID(string: "6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
+
+    /// How long without an advertisement before a device is dimmed, then removed.
+    /// Kept above a couple of advertising intervals so a missed beacon doesn't flicker rows.
+    private let staleAfter: TimeInterval = 1.5
+    private let removeAfter: TimeInterval = 3
+    /// How often the prune timer re-evaluates freshness.
+    private let pruneInterval: TimeInterval = 0.5
+    /// How long to wait for a connection before giving up on a (possibly gone) device.
+    private let connectTimeout: TimeInterval = 10
 
     private var central: CBCentralManager!
     private var connectedPeripheral: CBPeripheral?
     private var buffer: [UInt8] = []
     private var lastUIUpdate: Date = .distantPast
     private let uiUpdateInterval: TimeInterval = 0.1
+    private var pruneTimer: Timer?
+    private var connectTimer: Timer?
 
-    @Published var discoveredDevices: [CBPeripheral] = []
+    @Published var discoveredDevices: [DiscoveredDevice] = []
     @Published var selectedPeripheral: CBPeripheral?
     @Published var isConnected = false
+    @Published var isConnecting = false
     @Published var isScanning = false
     @Published var latestPacket: GnimuPacket?
     @Published var centralStateDescription = "Initializing…"
@@ -46,25 +73,66 @@ class BLEManager: NSObject, ObservableObject {
     func startScanning() {
         guard central.state == .poweredOn else { return }
         discoveredDevices = []
-        central.scanForPeripherals(withServices: nil)
+        // Allow duplicates so the OS keeps re-delivering advertisements; that's
+        // how we refresh `lastSeen` and detect when a device drops off.
+        central.scanForPeripherals(withServices: nil,
+                                   options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
         isScanning = true
+        startPruneTimer()
     }
 
     func stopScanning() {
         central.stopScan()
         isScanning = false
+        pruneTimer?.invalidate()
+        pruneTimer = nil
     }
 
     func connect(to device: CBPeripheral) {
         stopScanning()
         connectedPeripheral = device
+        isConnecting = true
         device.delegate = self
         central.connect(device)
+        // CoreBluetooth retries indefinitely with no error, so bound the wait
+        // in case the device has gone offline since it was selected.
+        connectTimer = Timer.scheduledTimer(withTimeInterval: connectTimeout, repeats: false) { [weak self] _ in
+            self?.connectAttemptTimedOut()
+        }
     }
 
     func disconnect() {
         guard let p = connectedPeripheral else { return }
         central.cancelPeripheralConnection(p)
+    }
+
+    private func cancelConnectTimer() {
+        connectTimer?.invalidate()
+        connectTimer = nil
+    }
+
+    private func connectAttemptTimedOut() {
+        cancelConnectTimer()
+        if let p = connectedPeripheral { central.cancelPeripheralConnection(p) }
+        connectedPeripheral = nil
+        selectedPeripheral = nil
+        isConnecting = false
+    }
+
+    /// Dim devices we haven't heard from recently and drop the long-gone ones.
+    private func startPruneTimer() {
+        pruneTimer?.invalidate()
+        pruneTimer = Timer.scheduledTimer(withTimeInterval: pruneInterval, repeats: true) { [weak self] _ in
+            self?.pruneStaleDevices()
+        }
+    }
+
+    private func pruneStaleDevices() {
+        let now = Date()
+        discoveredDevices.removeAll { now.timeIntervalSince($0.lastSeen) > removeAfter }
+        for i in discoveredDevices.indices {
+            discoveredDevices[i].isStale = now.timeIntervalSince(discoveredDevices[i].lastSeen) > staleAfter
+        }
     }
 
     private func processBuffer() {
@@ -102,7 +170,7 @@ extension BLEManager: CBCentralManagerDelegate {
 
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         switch central.state {
-        case .poweredOn:    centralStateDescription = "Powered on"; startScanning()
+        case .poweredOn:    centralStateDescription = "Powered on"; if !isConnected { startScanning() }
         case .poweredOff:   centralStateDescription = "Bluetooth is off"
         case .unauthorized: centralStateDescription = "Bluetooth permission denied"
         case .unsupported:  centralStateDescription = "Bluetooth not supported"
@@ -114,30 +182,40 @@ extension BLEManager: CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
         guard let name = peripheral.name, name.hasPrefix("RaceBox") else { return }
-        guard !discoveredDevices.contains(where: { $0.identifier == peripheral.identifier }) else { return }
-        discoveredDevices.append(peripheral)
+        let rssi = RSSI.intValue
+        if let i = discoveredDevices.firstIndex(where: { $0.id == peripheral.identifier }) {
+            discoveredDevices[i].rssi = rssi
+            discoveredDevices[i].lastSeen = Date()
+            discoveredDevices[i].isStale = false
+        } else {
+            discoveredDevices.append(DiscoveredDevice(peripheral: peripheral, rssi: rssi, lastSeen: Date()))
+        }
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        cancelConnectTimer()
+        isConnecting = false
         isConnected = true
         buffer.removeAll()
         peripheral.discoverServices([serviceUUID])
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
+        cancelConnectTimer()
+        isConnecting = false
         isConnected = false
         connectedPeripheral = nil
         selectedPeripheral = nil
-        startScanning()
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
+        cancelConnectTimer()
+        isConnecting = false
         isConnected = false
         connectedPeripheral = nil
         selectedPeripheral = nil
         latestPacket = nil
         buffer.removeAll()
-        startScanning()
     }
 }
 

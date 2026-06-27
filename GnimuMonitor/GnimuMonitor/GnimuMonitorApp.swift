@@ -22,5 +22,6 @@ struct GnimuMonitorApp: App {
         WindowGroup {
             ContentView()
         }
+        .gnimuWindowDefaults()
     }
 }

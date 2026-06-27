@@ -17,6 +17,21 @@
 import Foundation
 import CoreLocation
 
+/// User-selectable speed unit, persisted via @AppStorage("speedUnit").
+enum SpeedUnit: String, CaseIterable {
+    case kmh
+    case mph
+
+    var label: String { self == .kmh ? "km/h" : "mph" }
+
+    /// Converts a km/h value into this unit.
+    func value(fromKmh kmh: Double) -> Double {
+        self == .kmh ? kmh : kmh * 0.621371
+    }
+
+    var toggled: SpeedUnit { self == .kmh ? .mph : .kmh }
+}
+
 struct GnimuPacket {
     let iTOW: UInt32
     let year: UInt16
