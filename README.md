@@ -43,4 +43,4 @@ Open `GnimuMonitor/GnimuMonitor.xcodeproj` in Xcode and build for your target de
 
 | Device Picker | Live Map & Data Panel |
 | :---: | :---: |
-| <img src="screenshots/ipad-device-picker.png" width="390"> | <img src="screenshots/ipad-live-map-and-data.png" width="390"> |
+| <img src="screenshots/ipad-device-picker.png" width="391"> | <img src="screenshots/ipad-live-map-and-data.png" width="391"> |
