@@ -5,7 +5,7 @@
 ![License: GPL v3](https://img.shields.io/badge/license-GPLv3-green)
 ![Xcode 26.5+](https://img.shields.io/badge/Xcode-26.5%2B-lightgrey)
 
-A macOS/iOS app for monitoring real-time output from a [Gnimu](https://github.com/c20d-us/Gnimu) open-source RaceBox Mini emulator. Gnimu streams GNSS+IMU telemetry over BLE (Bluetooth Low Energy).
+A macOS/iOS app for monitoring real-time output from a [Gnimu](https://github.com/c20d-us/Gnimu) open-source RaceBox Mini emulator. Gnimu streams GNSS+IMU telemetry over BLE (Bluetooth Low Energy) using the published RaceBox BLE protocol, and I built this app to validate Gnimu functionality. I've not tested with an actual RaceBox device, but it should work exactly the same when paired with a RaceBox Mini, Mini S, or Micro.
 
 The macOS and iPad version features a single monitor window with a live map showing current location on the left, and a data panel on the right that provides a view of real-time data streaming from the GNSS+IMU device.
 
