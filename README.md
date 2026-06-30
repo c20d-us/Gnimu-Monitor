@@ -37,4 +37,4 @@ Open `GnimuMonitor/GnimuMonitor.xcodeproj` in Xcode and build for your target de
 
 | Device Picker | Live Map | Data Panel | G-Force Meter |
 | :---: | :---: | :---: | :---: |
-| <img src="screenshots/device-picker.png" width="180"> | <img src="screenshots/live-map.png" width="180"> | <img src="screenshots/data-panel.png" width="180"> | <img src="screenshots/g-force-meter.png" width="180"> |
+| <img src="screenshots/device-picker.png" width="185"> | <img src="screenshots/live-map.png" width="185"> | <img src="screenshots/data-panel.png" width="185"> | <img src="screenshots/g-force-meter.png" width="185"> |
