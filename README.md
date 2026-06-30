@@ -5,11 +5,11 @@
 ![License: GPL v3](https://img.shields.io/badge/license-GPLv3-green)
 ![Xcode 26.5+](https://img.shields.io/badge/Xcode-26.5%2B-lightgrey)
 
-A macOS/iOS app for monitoring real-time output from a Gnimu (RaceBox Mini) GNSS+IMU streaming telemetry monitor over BLE (Bluetooth Low Energy).
+A macOS/iOS app for monitoring real-time output from a [Gnimu](https://github.com/c20d-us/Gnimu) open-source RaceBox Mini emulator. Gnimu streams GNSS+IMU telemetry over BLE (Bluetooth Low Energy).
 
-The macOS and iPad version features a single monitor window with live map showing current location on the left, and a data panel on the right that provides a view of real-time data streaming from the GNSS+IMU device.
+The macOS and iPad version features a single monitor window with a live map showing current location on the left, and a data panel on the right that provides a view of real-time data streaming from the GNSS+IMU device.
 
-The iPhone version of the app has three swipe-able panes - a live map panel, a streaming data panel, and a real-time g-force gauge panel. Each panel has a glancebox at the top the shows ground speed in the middle, with battery level, satellite lock count, GNSS fix status, and pDOP in the four corners.
+The iPhone version has three swipe-able panes - a live map panel, a streaming data panel, and a real-time g-force gauge panel. Each panel has a glancebox at the top that shows ground speed in the middle, with battery level, satellite lock count, GNSS fix status, and [pDOP](https://en.wikipedia.org/wiki/Dilution_of_precision) in the four corners.
 
 The units for ground speed can be toggled between MPH and KPH by tapping or clicking the speed value display.
 
