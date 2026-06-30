@@ -32,3 +32,9 @@ This project is licensed under the GNU General Public License v3.0. See [LICENSE
 ## Building
 
 Open `GnimuMonitor/GnimuMonitor.xcodeproj` in Xcode and build for your target device. BLE functionality requires a physical device — the simulator does not support Bluetooth.
+
+## iPhone Screenshots
+
+| Device Picker | Live Map | Data Panel | G-Force Meter |
+| :---: | :---: | :---: | :---: |
+| <img src="screenshots/device-picker.png" width="100"> | <img src="screenshots/live-map.png" width="100"> | <img src="screenshots/data-panel.png" width="100"> | <img src="screenshots/g-force-meter.png" width="100"> |
