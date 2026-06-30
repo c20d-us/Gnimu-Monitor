@@ -171,12 +171,21 @@ extension BLEManager: CBCentralManagerDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         switch central.state {
         case .poweredOn:    centralStateDescription = "Powered on"; if !isConnected { startScanning() }
-        case .poweredOff:   centralStateDescription = "Bluetooth is off"
-        case .unauthorized: centralStateDescription = "Bluetooth permission denied"
-        case .unsupported:  centralStateDescription = "Bluetooth not supported"
-        case .resetting:    centralStateDescription = "Bluetooth resetting"
-        default:            centralStateDescription = "Unknown state"
+        case .poweredOff:   centralStateDescription = "Bluetooth is off"; handleBluetoothUnavailable()
+        case .unauthorized: centralStateDescription = "Bluetooth permission denied"; handleBluetoothUnavailable()
+        case .unsupported:  centralStateDescription = "Bluetooth not supported"; handleBluetoothUnavailable()
+        case .resetting:    centralStateDescription = "Bluetooth resetting"; handleBluetoothUnavailable()
+        default:            centralStateDescription = "Unknown state"; handleBluetoothUnavailable()
         }
+    }
+
+    /// Bluetooth became unavailable (e.g. user turned it off): stop reflecting a
+    /// scan that can no longer run and clear the now-defunct device list.
+    private func handleBluetoothUnavailable() {
+        isScanning = false
+        pruneTimer?.invalidate()
+        pruneTimer = nil
+        discoveredDevices = []
     }
 
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,

@@ -20,6 +20,7 @@ import SwiftUI
 /// then swaps to the full monitor layout. Disconnecting returns to the picker.
 struct ContentView: View {
     @StateObject private var ble = BLEManager()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -30,6 +31,18 @@ struct ContentView: View {
             }
         }
         .sizesWindow(connected: ble.isConnected)
+        // Blank the macOS window title (no "Gnimu Monitor" in the title bar).
+        .navigationTitle("")
+        .onChange(of: scenePhase) { _, phase in
+            #if os(iOS)
+            // Don't hold the connection while suspended: drop it when fully
+            // backgrounded so we return to the picker and rescan on next launch.
+            // (.background only — not the transient .inactive from Control Center.)
+            if phase == .background, ble.isConnected {
+                ble.disconnect()
+            }
+            #endif
+        }
     }
 }
 

@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "832C891B2FD6543C007AE902"
-               BuildableName = "GnimuMonitor.app"
+               BuildableName = "Gnimu Monitor.app"
                BlueprintName = "GnimuMonitor"
                ReferencedContainer = "container:GnimuMonitor.xcodeproj">
             </BuildableReference>
@@ -46,7 +46,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "832C891B2FD6543C007AE902"
-            BuildableName = "GnimuMonitor.app"
+            BuildableName = "Gnimu Monitor.app"
             BlueprintName = "GnimuMonitor"
             ReferencedContainer = "container:GnimuMonitor.xcodeproj">
          </BuildableReference>
@@ -63,7 +63,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "832C891B2FD6543C007AE902"
-            BuildableName = "GnimuMonitor.app"
+            BuildableName = "Gnimu Monitor.app"
             BlueprintName = "GnimuMonitor"
             ReferencedContainer = "container:GnimuMonitor.xcodeproj">
          </BuildableReference>

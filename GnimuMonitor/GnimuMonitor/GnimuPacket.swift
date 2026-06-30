@@ -89,6 +89,15 @@ struct GnimuPacket {
 
     var speedKmh: Double { groundSpeed * 3.6 }
 
+    /// Ground speed in km/h with stationary GPS noise suppressed. A still
+    /// receiver still reports a few cm/s of jitter, so speed is reported as zero
+    /// unless it clears both its own accuracy estimate and a small floor — above
+    /// that the real (unrounded) speed comes through, preserving resolution.
+    var movingSpeedKmh: Double {
+        let threshold = max(speedAccuracy, 0.2)   // m/s
+        return groundSpeed > threshold ? speedKmh : 0
+    }
+
     var headingCardinal: String {
         let dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
         let idx = Int((headingOfMotion + 22.5) / 45.0) % 8

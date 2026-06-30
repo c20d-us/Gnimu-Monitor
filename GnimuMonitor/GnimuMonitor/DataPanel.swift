@@ -33,9 +33,9 @@ struct DataPanel: View {
                     }
 
                     section("Motion") {
-                        row("Ground Speed",     String(format: "%.1f %@", speedUnit.value(fromKmh: p.speedKmh), speedUnit.label))
+                        row("Ground Speed",     String(format: "%.1f %@", speedUnit.value(fromKmh: p.movingSpeedKmh), speedUnit.label))
+                        row("Speed Accuracy",   String(format: "%.2f %@", speedUnit.value(fromKmh: p.speedAccuracy * 3.6), speedUnit.label))
                         row("Heading",          String(format: "%@ %.2f °", p.headingCardinal, p.headingOfMotion))
-                        row("Speed Accuracy",   String(format: "%.2f m/s", p.speedAccuracy))
                         row("Heading Accuracy", String(format: "%.2f °", p.headingAccuracy))
                     }
 
@@ -63,6 +63,9 @@ struct DataPanel: View {
                     .padding()
             }
         }
+        // Only bounce/scroll when the data actually overflows (windowed iPad,
+        // small Mac window, iPhone); when it all fits, the panel stays put.
+        .scrollBounceBehavior(.basedOnSize)
     }
 
     /// One titled, light-gray rounded card: label at top-left, rows centered.

@@ -17,71 +17,68 @@
 import SwiftUI
 
 /// The shared "instrument" box used across iPhone, iPad, and Mac: speed and
-/// satellite count, GNSS status (fix/pDOP/battery), and a compact g-force meter.
+/// satellite count alongside GNSS status (fix type, pDOP, battery).
 struct GlanceBox: View {
     let packet: GnimuPacket?
     @AppStorage("speedUnit") private var speedUnit: SpeedUnit = .kmh
 
-    private var gMagnitude: Double {
-        let x = packet?.accelX ?? 0, y = packet?.accelY ?? 0
-        return (x * x + y * y).squareRoot()
-    }
-
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            // Speed + satellite count
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Text(String(format: "%.0f", speedUnit.value(fromKmh: packet?.speedKmh ?? 0)))
-                        .font(.system(size: 40, weight: .semibold, design: .rounded))
-                        .contentTransition(.numericText())
-                    Text(speedUnit.label)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    withAnimation { speedUnit = speedUnit.toggled }
-                }
-
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("\(packet?.numSV ?? 0)")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(satelliteColor)
-                    Text("Satellites")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Spacer(minLength: 4)
-
-            // GNSS status: fix type (color-coded), pDOP, battery
-            VStack(spacing: 6) {
-                Text(packet?.fixTypeString ?? "—")
-                    .font(.callout)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(fixColor)
-                stat("pDOP", packet.map { String(format: "%.2f", $0.pDOP) } ?? "—")
-                stat("Battery", packet.map { "\($0.battery)%" } ?? "—")
-            }
-
-            Spacer(minLength: 4)
-
-            // G-meter — matches the g-plot axis mapping (x: longitudinal, y: lateral).
+        ZStack {
+            // Center: speed (tap to toggle units)
             VStack(spacing: 2) {
-                GForceMeter(x: packet?.accelY ?? 0, y: packet?.accelX ?? 0)
-                    .frame(width: 60, height: 60)
-                Text(String(format: "%.1fg", gMagnitude))
-                    .font(.caption2)
+                Text(String(format: "%.0f", speedUnit.value(fromKmh: packet?.movingSpeedKmh ?? 0)))
+                    .font(.system(size: 64, weight: .semibold, design: .rounded))
+                    .contentTransition(.numericText())
+                Text(speedUnit.label)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation { speedUnit = speedUnit.toggled }
+            }
+
+            // Top-left: battery fill icon (nudged down to line up with the Fix text,
+            // whose glyphs sit lower than the icon's top edge)
+            BatteryGauge(percent: packet?.battery)
+                .padding(.top, 6)
+                .padding(.leading, 1)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+            // Top-right: fix type (color-coded), same size as the corner values
+            Text(packet?.fixTypeString ?? "—")
+                .font(.system(size: 24, weight: .semibold, design: .rounded))
+                .foregroundStyle(fixColor)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+
+            // Bottom-left: satellites
+            corner("\(packet?.numSV ?? 0)", "Satellites", color: satelliteColor)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+
+            // Bottom-right: pDOP
+            corner(packet.map { String(format: "%.1f", $0.pDOP) } ?? "—", "pDOP", color: pdopColor)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
         }
+        // Fixed height so the corner items (which fill vertically) spread to the
+        // corners instead of inflating the whole box.
+        .frame(maxWidth: .infinity, minHeight: 115, maxHeight: 115)
         .padding(14)
         .background(Color.accentColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
         .overlay {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(Color.accentColor.opacity(0.45), lineWidth: 1.5)
+        }
+    }
+
+    /// A value-over-label stat used in the box corners.
+    private func corner(_ value: String, _ label: String, color: Color) -> some View {
+        VStack(spacing: 2) {
+            Text(value)
+                .font(.system(size: 24, weight: .semibold, design: .rounded))
+                .foregroundStyle(color)
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -105,52 +102,41 @@ struct GlanceBox: View {
         }
     }
 
-    private func stat(_ label: String, _ value: String) -> some View {
-        VStack(spacing: 1) {
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.subheadline)
-        }
+    /// pDOP color: red ≥ 3, amber ≥ 2, green < 2 (lower is better).
+    private var pdopColor: Color {
+        guard let d = packet?.pDOP else { return .secondary }
+        if d >= 3 { return .red }
+        if d >= 2 { return .orange }
+        return .green
     }
 }
 
-/// A compact lateral/longitudinal g-force plot: rings at 1 g, crosshairs, and a
-/// dot for the current acceleration clamped to the dial edge.
-private struct GForceMeter: View {
-    let x: Double   // horizontal axis g
-    let y: Double   // vertical axis g (positive = up/forward)
+/// A battery outline filled proportionally to charge — green, amber under 20%.
+private struct BatteryGauge: View {
+    let percent: UInt8?   // 0–100, nil = unknown
 
-    private let maxG = 2.0
+    private let bodyWidth: CGFloat = 40
+    private let bodyHeight: CGFloat = 18
 
     var body: some View {
-        Canvas { ctx, size in
-            let cx = size.width / 2, cy = size.height / 2
-            let r = min(cx, cy) - 2
+        let fraction = Double(percent ?? 0) / 100.0
+        let fillColor: Color = (percent ?? 100) < 20 ? .orange : .green
+        let innerWidth = bodyWidth - 6
 
-            ctx.stroke(Path(ellipseIn: CGRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2)),
-                       with: .color(.secondary.opacity(0.4)), lineWidth: 1)
-
-            let rr = r / maxG   // 1 g reference ring
-            ctx.stroke(Path(ellipseIn: CGRect(x: cx - rr, y: cy - rr, width: rr * 2, height: rr * 2)),
-                       with: .color(.secondary.opacity(0.2)), lineWidth: 0.5)
-
-            var cross = Path()
-            cross.move(to: CGPoint(x: cx - r, y: cy)); cross.addLine(to: CGPoint(x: cx + r, y: cy))
-            cross.move(to: CGPoint(x: cx, y: cy - r)); cross.addLine(to: CGPoint(x: cx, y: cy + r))
-            ctx.stroke(cross, with: .color(.secondary.opacity(0.2)), lineWidth: 0.5)
-
-            let rawDx = CGFloat(x / maxG) * r
-            let rawDy = CGFloat(-y / maxG) * r   // invert so forward = up
-            let dist = sqrt(rawDx * rawDx + rawDy * rawDy)
-            let scale = dist > r ? r / dist : 1.0
-            let dx = rawDx * scale, dy = rawDy * scale
-
-            let dot: CGFloat = 8
-            ctx.fill(Path(ellipseIn: CGRect(x: cx + dx - dot / 2, y: cy + dy - dot / 2,
-                                            width: dot, height: dot)),
-                     with: .color(.green))
+        HStack(spacing: 1.5) {
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(Color.secondary, lineWidth: 2)
+                    .frame(width: bodyWidth, height: bodyHeight)
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(percent == nil ? Color.secondary.opacity(0.3) : fillColor)
+                    .frame(width: max(0, innerWidth * fraction), height: bodyHeight - 6)
+                    .padding(.leading, 3)
+            }
+            RoundedRectangle(cornerRadius: 1)
+                .fill(Color.secondary)
+                .frame(width: 3, height: 7)
         }
+        .accessibilityLabel("Battery \(percent.map { "\($0) percent" } ?? "unknown")")
     }
 }

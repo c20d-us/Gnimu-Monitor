@@ -16,6 +16,9 @@
 
 import SwiftUI
 import CoreBluetooth
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// The connected screen. On regular-width displays (Mac, iPad landscape) it's a
 /// map alongside the glance box and telemetry; on compact widths (iPhone, iPad
@@ -37,6 +40,16 @@ struct MonitorView: View {
 
             content
         }
+        // Keep the screen awake while the live monitor is on-screen. This view
+        // only exists while connected, and iOS only honors it in the foreground.
+        .onAppear { setKeepAwake(true) }
+        .onDisappear { setKeepAwake(false) }
+    }
+
+    private func setKeepAwake(_ on: Bool) {
+        #if os(iOS)
+        UIApplication.shared.isIdleTimerDisabled = on
+        #endif
     }
 
     @ViewBuilder
@@ -76,7 +89,7 @@ struct MonitorView: View {
 }
 
 #if os(iOS)
-/// Compact layout: a pinned glance box above a paged Map / Data swipe deck.
+/// Compact layout: a pinned glance box above a paged Map / Data / G-Force deck.
 private struct CompactMonitor: View {
     @ObservedObject var ble: BLEManager
 
@@ -88,9 +101,73 @@ private struct CompactMonitor: View {
             TabView {
                 MapPage(packet: ble.latestPacket)
                 DataPanel(packet: ble.latestPacket)
+                GForcePanel(packet: ble.latestPacket)
             }
             .tabViewStyle(.page(indexDisplayMode: .always))
             .indexViewStyle(.page(backgroundDisplayMode: .always))
+        }
+    }
+}
+
+/// Full-page g-force meter — a compact-only panel (not shown on Mac/iPad).
+private struct GForcePanel: View {
+    let packet: GnimuPacket?
+
+    private var gMagnitude: Double {
+        let x = packet?.accelX ?? 0, y = packet?.accelY ?? 0
+        return (x * x + y * y).squareRoot()
+    }
+
+    var body: some View {
+        VStack(spacing: 20) {
+            // Matches the data-panel axis mapping (x: longitudinal, y: lateral).
+            GForceMeter(x: packet?.accelY ?? 0, y: packet?.accelX ?? 0)
+                .frame(width: 260, height: 260)
+            Text(String(format: "%.2f g", gMagnitude))
+                .font(.title2.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+    }
+}
+
+/// A lateral/longitudinal g-force plot: rings at 1 g, crosshairs, and a dot for
+/// the current acceleration clamped to the dial edge.
+private struct GForceMeter: View {
+    let x: Double   // horizontal axis g
+    let y: Double   // vertical axis g (positive = up/forward)
+
+    private let maxG = 2.0
+
+    var body: some View {
+        Canvas { ctx, size in
+            let cx = size.width / 2, cy = size.height / 2
+            let r = min(cx, cy) - 2
+
+            ctx.stroke(Path(ellipseIn: CGRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2)),
+                       with: .color(.secondary.opacity(0.4)), lineWidth: 1)
+
+            let rr = r / maxG   // 1 g reference ring
+            ctx.stroke(Path(ellipseIn: CGRect(x: cx - rr, y: cy - rr, width: rr * 2, height: rr * 2)),
+                       with: .color(.secondary.opacity(0.2)), lineWidth: 0.5)
+
+            var cross = Path()
+            cross.move(to: CGPoint(x: cx - r, y: cy)); cross.addLine(to: CGPoint(x: cx + r, y: cy))
+            cross.move(to: CGPoint(x: cx, y: cy - r)); cross.addLine(to: CGPoint(x: cx, y: cy + r))
+            ctx.stroke(cross, with: .color(.secondary.opacity(0.2)), lineWidth: 0.5)
+
+            let rawDx = CGFloat(x / maxG) * r
+            let rawDy = CGFloat(-y / maxG) * r   // invert so forward = up
+            let dist = sqrt(rawDx * rawDx + rawDy * rawDy)
+            let scale = dist > r ? r / dist : 1.0
+            let dx = rawDx * scale, dy = rawDy * scale
+
+            let dot = max(8, min(cx, cy) * 0.1)
+            ctx.fill(Path(ellipseIn: CGRect(x: cx + dx - dot / 2, y: cy + dy - dot / 2,
+                                            width: dot, height: dot)),
+                     with: .color(.green))
         }
     }
 }

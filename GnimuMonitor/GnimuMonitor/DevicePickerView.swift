@@ -49,8 +49,8 @@ struct DevicePickerView: View {
     // MARK: Header — title
 
     private var header: some View {
-        Text("Devices")
-            .font(.headline)
+        Text("Available Devices")
+            .font(.system(size: 24, weight: .semibold))
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -64,10 +64,11 @@ struct DevicePickerView: View {
             VStack(spacing: 8) {
                 Spacer()
                 Image(systemName: ble.isScanning ? "dot.radiowaves.left.and.right" : "antenna.radiowaves.left.and.right.slash")
-                    .font(.largeTitle)
-                    .foregroundStyle(.tertiary)
+                    .font(.system(size: 64))
+                    .foregroundStyle(ble.isScanning ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
+                    .symbolEffect(.variableColor.iterative, options: .repeating, isActive: ble.isScanning)
                 Text(emptyMessage)
-                    .font(.callout)
+                    .font(.system(size: 16))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                 Spacer()
@@ -81,6 +82,7 @@ struct DevicePickerView: View {
                         Image(systemName: "bolt.horizontal.circle")
                             .foregroundStyle(.secondary)
                         Text(device.name)
+                            .fontWeight(.semibold)
                         Spacer()
                         SignalBars(rssi: device.rssi)
                     }
@@ -93,7 +95,7 @@ struct DevicePickerView: View {
     }
 
     private var emptyMessage: String {
-        if ble.isScanning { return "Scanning for devices…" }
+        if ble.isScanning { return "Scanning" }
         // Not scanning while on the picker means Bluetooth isn't ready.
         return ble.centralStateDescription
     }
