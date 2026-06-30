@@ -30,7 +30,7 @@ This project is licensed under the GNU General Public License v3.0. See [LICENSE
 
 - Xcode 26.5+
 - macOS 26.5+ or iOS 26.5+
-- A Gnimu-compatible BLE device (advertises as "RaceBox")
+- A compatible BLE device (advertises as "RaceBox")
 
 ## Building
 
