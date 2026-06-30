@@ -18,7 +18,7 @@ The units for ground speed can be toggled between MPH and KPH by tapping or clic
 
 ## Features
 
-- BLE device discovery and connection
+- RaceBox BLE device discovery and connection (hard-coded to only display devices with a "RaceBox" name prefix)
 - Live data panels displaying position, motion, GNSS status, IMU, and timing
 - Real-time map tracking with follow mode
 
