@@ -38,12 +38,18 @@ struct GlanceBox: View {
                 withAnimation { speedUnit = speedUnit.toggled }
             }
 
-            // Top-left: battery fill icon (nudged down to line up with the Fix text,
-            // whose glyphs sit lower than the icon's top edge)
-            BatteryGauge(percent: packet?.battery)
-                .padding(.top, 6)
-                .padding(.leading, 1)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            // Top-left: battery fill icon with the numeric percentage below it
+            // (nudged down to line up with the Fix text, whose glyphs sit lower
+            // than the icon's top edge)
+            VStack(alignment: .center, spacing: 2) {
+                BatteryGauge(percent: packet?.batteryPercent, charging: packet?.isCharging ?? false)
+                Text(packet.map { "\($0.batteryPercent)%" } ?? "—")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 6)
+            .padding(.leading, 1)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
             // Top-right: fix type (color-coded), same size as the corner values
             Text(packet?.fixTypeString ?? "—")
@@ -113,13 +119,15 @@ struct GlanceBox: View {
 
 /// A battery outline filled proportionally to charge — green, amber under 20%.
 private struct BatteryGauge: View {
-    let percent: UInt8?   // 0–100, nil = unknown
+    let percent: Int?    // 0–100, nil = unknown
+    let charging: Bool
 
     private let bodyWidth: CGFloat = 40
     private let bodyHeight: CGFloat = 18
 
     var body: some View {
-        let fraction = Double(percent ?? 0) / 100.0
+        // Clamp defensively so the fill can never extend past the outline.
+        let fraction = min(max(Double(percent ?? 0) / 100.0, 0), 1)
         let fillColor: Color = (percent ?? 100) < 20 ? .orange : .green
         let innerWidth = bodyWidth - 6
 
@@ -132,11 +140,18 @@ private struct BatteryGauge: View {
                     .fill(percent == nil ? Color.secondary.opacity(0.3) : fillColor)
                     .frame(width: max(0, innerWidth * fraction), height: bodyHeight - 6)
                     .padding(.leading, 3)
+
+                if charging {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.primary)
+                        .frame(width: bodyWidth, height: bodyHeight)
+                }
             }
             RoundedRectangle(cornerRadius: 1)
                 .fill(Color.secondary)
                 .frame(width: 3, height: 7)
         }
-        .accessibilityLabel("Battery \(percent.map { "\($0) percent" } ?? "unknown")")
+        .accessibilityLabel("Battery \(percent.map { "\($0) percent" } ?? "unknown")\(charging ? ", charging" : "")")
     }
 }
