@@ -98,6 +98,14 @@ struct GnimuPacket {
         return groundSpeed > threshold ? speedKmh : 0
     }
 
+    /// Battery charge percentage. The RaceBox protocol packs charging state into
+    /// bit 7 of the battery byte and the charge level into the low 7 bits, so we
+    /// mask off bit 7 (and clamp) — otherwise a charging device reads as >100%.
+    var batteryPercent: Int { min(Int(battery & 0x7F), 100) }
+
+    /// True when the device reports it is charging (bit 7 of the battery byte).
+    var isCharging: Bool { (battery & 0x80) != 0 }
+
     var headingCardinal: String {
         let dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
         let idx = Int((headingOfMotion + 22.5) / 45.0) % 8
