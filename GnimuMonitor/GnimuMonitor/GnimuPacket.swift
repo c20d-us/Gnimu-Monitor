@@ -14,8 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-import Foundation
 import CoreLocation
+import Foundation
 
 /// User-selectable speed unit, persisted via @AppStorage("speedUnit").
 enum SpeedUnit: String, CaseIterable {
@@ -41,31 +41,31 @@ struct GnimuPacket {
     let minute: UInt8
     let second: UInt8
     let validityFlags: UInt8
-    let timeAccuracy: UInt32    // nanoseconds
+    let timeAccuracy: UInt32  // nanoseconds
     let nanoseconds: Int32
     let fixType: UInt8
     let fixStatusFlags: UInt8
     let dateTimeFlags: UInt8
     let numSV: UInt8
-    let longitude: Double       // degrees
-    let latitude: Double        // degrees
-    let heightEllipsoid: Double // metres
-    let heightMSL: Double       // metres
-    let hAcc: Double            // metres
-    let vAcc: Double            // metres
-    let groundSpeed: Double     // m/s
-    let headingOfMotion: Double // degrees 0-360
-    let speedAccuracy: Double   // m/s
-    let headingAccuracy: Double // degrees
+    let longitude: Double  // degrees
+    let latitude: Double  // degrees
+    let heightEllipsoid: Double  // metres
+    let heightMSL: Double  // metres
+    let hAcc: Double  // metres
+    let vAcc: Double  // metres
+    let groundSpeed: Double  // m/s
+    let headingOfMotion: Double  // degrees 0-360
+    let speedAccuracy: Double  // m/s
+    let headingAccuracy: Double  // degrees
     let pDOP: Double
     let latLonFlags: UInt8
-    let battery: UInt8          // percent
-    let accelX: Double          // g  (lateral)
-    let accelY: Double          // g  (longitudinal)
-    let accelZ: Double          // g  (vertical)
-    let gyroX: Double           // deg/s
-    let gyroY: Double           // deg/s
-    let gyroZ: Double           // deg/s
+    let battery: UInt8  // percent
+    let accelX: Double  // g  (longitudinal)
+    let accelY: Double  // g  (lateral)
+    let accelZ: Double  // g  (vertical)
+    let gyroX: Double  // deg/s
+    let gyroY: Double  // deg/s
+    let gyroZ: Double  // deg/s
 
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
@@ -94,7 +94,7 @@ struct GnimuPacket {
     /// unless it clears both its own accuracy estimate and a small floor — above
     /// that the real (unrounded) speed comes through, preserving resolution.
     var movingSpeedKmh: Double {
-        let threshold = max(speedAccuracy, 0.2)   // m/s
+        let threshold = max(speedAccuracy, 0.25)  // m/s
         return groundSpeed > threshold ? speedKmh : 0
     }
 
@@ -120,7 +120,8 @@ struct GnimuPacket {
         guard b[2] == 0xFF, b[3] == 0x01 else { return nil }
 
         // Validate checksum over class, id, length bytes, and payload
-        var ckA: UInt8 = 0, ckB: UInt8 = 0
+        var ckA: UInt8 = 0
+        var ckB: UInt8 = 0
         for i in 2..<86 {
             ckA = ckA &+ b[i]
             ckB = ckB &+ ckA
@@ -129,51 +130,51 @@ struct GnimuPacket {
 
         let p = 6  // payload base offset
 
-        func u8(_ o: Int) -> UInt8  { b[p + o] }
+        func u8(_ o: Int) -> UInt8 { b[p + o] }
         func u16(_ o: Int) -> UInt16 {
-            UInt16(b[p+o]) | UInt16(b[p+o+1]) << 8
+            UInt16(b[p + o]) | UInt16(b[p + o + 1]) << 8
         }
         func u32(_ o: Int) -> UInt32 {
-            UInt32(b[p+o]) | UInt32(b[p+o+1]) << 8 |
-            UInt32(b[p+o+2]) << 16 | UInt32(b[p+o+3]) << 24
+            UInt32(b[p + o]) | UInt32(b[p + o + 1]) << 8 | UInt32(b[p + o + 2]) << 16 | UInt32(
+                b[p + o + 3]) << 24
         }
         func i32(_ o: Int) -> Int32 { Int32(bitPattern: u32(o)) }
         func i16(_ o: Int) -> Int16 { Int16(bitPattern: u16(o)) }
 
         return GnimuPacket(
-            iTOW:            u32(0),
-            year:            u16(4),
-            month:           u8(6),
-            day:             u8(7),
-            hour:            u8(8),
-            minute:          u8(9),
-            second:          u8(10),
-            validityFlags:   u8(11),
-            timeAccuracy:    u32(12),
-            nanoseconds:     i32(16),
-            fixType:         u8(20),
-            fixStatusFlags:  u8(21),
-            dateTimeFlags:   u8(22),
-            numSV:           u8(23),
-            longitude:       Double(i32(24)) * 1e-7,
-            latitude:        Double(i32(28)) * 1e-7,
+            iTOW: u32(0),
+            year: u16(4),
+            month: u8(6),
+            day: u8(7),
+            hour: u8(8),
+            minute: u8(9),
+            second: u8(10),
+            validityFlags: u8(11),
+            timeAccuracy: u32(12),
+            nanoseconds: i32(16),
+            fixType: u8(20),
+            fixStatusFlags: u8(21),
+            dateTimeFlags: u8(22),
+            numSV: u8(23),
+            longitude: Double(i32(24)) * 1e-7,
+            latitude: Double(i32(28)) * 1e-7,
             heightEllipsoid: Double(i32(32)) / 1000.0,
-            heightMSL:       Double(i32(36)) / 1000.0,
-            hAcc:            Double(u32(40)) / 1000.0,
-            vAcc:            Double(u32(44)) / 1000.0,
-            groundSpeed:     Double(i32(48)) / 1000.0,
+            heightMSL: Double(i32(36)) / 1000.0,
+            hAcc: Double(u32(40)) / 1000.0,
+            vAcc: Double(u32(44)) / 1000.0,
+            groundSpeed: Double(i32(48)) / 1000.0,
             headingOfMotion: Double(i32(52)) * 1e-5,
-            speedAccuracy:   Double(u32(56)) / 1000.0,
+            speedAccuracy: Double(u32(56)) / 1000.0,
             headingAccuracy: Double(u32(60)) * 1e-5,
-            pDOP:            Double(u16(64)) / 100.0,
-            latLonFlags:     u8(66),
-            battery:         u8(67),
-            accelX:          Double(i16(68)) / 1000.0,
-            accelY:          Double(i16(70)) / 1000.0,
-            accelZ:          Double(i16(72)) / 1000.0,
-            gyroX:           Double(i16(74)) / 100.0,
-            gyroY:           Double(i16(76)) / 100.0,
-            gyroZ:           Double(i16(78)) / 100.0
+            pDOP: Double(u16(64)) / 100.0,
+            latLonFlags: u8(66),
+            battery: u8(67),
+            accelX: Double(i16(68)) / 1000.0,
+            accelY: Double(i16(70)) / 1000.0,
+            accelZ: Double(i16(72)) / 1000.0,
+            gyroX: Double(i16(74)) / 100.0,
+            gyroY: Double(i16(76)) / 100.0,
+            gyroZ: Double(i16(78)) / 100.0
         )
     }
 }

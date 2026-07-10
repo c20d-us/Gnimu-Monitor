@@ -94,7 +94,7 @@ struct GlanceBox: View {
         switch fix {
         case 3, 4: return .green
         case 1, 2: return .orange
-        default:   return .red
+        default: return .red
         }
     }
 
@@ -102,9 +102,9 @@ struct GlanceBox: View {
     private var satelliteColor: Color {
         guard let n = packet?.numSV else { return .secondary }
         switch n {
-        case ..<4:  return .red
+        case ..<4: return .red
         case 4...8: return .orange
-        default:    return .green
+        default: return .green
         }
     }
 
@@ -119,7 +119,7 @@ struct GlanceBox: View {
 
 /// A battery outline filled proportionally to charge — green, amber under 20%.
 private struct BatteryGauge: View {
-    let percent: Int?    // 0–100, nil = unknown
+    let percent: Int?  // 0–100, nil = unknown
     let charging: Bool
 
     private let bodyWidth: CGFloat = 40
@@ -128,7 +128,8 @@ private struct BatteryGauge: View {
     var body: some View {
         // Clamp defensively so the fill can never extend past the outline.
         let fraction = min(max(Double(percent ?? 0) / 100.0, 0), 1)
-        let fillColor: Color = (percent ?? 100) < 20 ? .orange : .green
+        let level = percent ?? 100
+        let fillColor: Color = level <= 5 ? .red : level <= 20 ? .orange : .green
         let innerWidth = bodyWidth - 6
 
         HStack(spacing: 1.5) {
@@ -152,6 +153,8 @@ private struct BatteryGauge: View {
                 .fill(Color.secondary)
                 .frame(width: 3, height: 7)
         }
-        .accessibilityLabel("Battery \(percent.map { "\($0) percent" } ?? "unknown")\(charging ? ", charging" : "")")
+        .accessibilityLabel(
+            "Battery \(percent.map { "\($0) percent" } ?? "unknown")\(charging ? ", charging" : "")"
+        )
     }
 }
