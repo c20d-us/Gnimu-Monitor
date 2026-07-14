@@ -108,7 +108,11 @@ struct GnimuPacket {
 
     var headingCardinal: String {
         let dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
-        let idx = Int((headingOfMotion + 22.5) / 45.0) % 8
+        // Normalise heading into 0..<360 first so a negative or out-of-range
+        // headingOfMotion can't produce a negative (out-of-bounds) index.
+        let normalized = headingOfMotion.truncatingRemainder(dividingBy: 360)
+        let positive = normalized < 0 ? normalized + 360 : normalized
+        let idx = Int((positive + 22.5) / 45.0) % 8
         return dirs[idx]
     }
 
