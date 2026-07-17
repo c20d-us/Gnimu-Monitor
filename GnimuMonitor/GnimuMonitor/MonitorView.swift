@@ -23,8 +23,23 @@ import UIKit
 /// The connected screen. On regular-width displays (Mac, iPad landscape) it's a
 /// map alongside the glance box and telemetry; on compact widths (iPhone, iPad
 /// Split View) it's a pinned glance box over a swipeable Map/Data deck.
+/// The switchable panel shown in the lower half of the split (Mac/iPad) layout.
+enum RightPanelTab: String, CaseIterable, Identifiable {
+    case data, fixRate, level
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .data:    return "Data"
+        case .fixRate: return "Fix Rate"
+        case .level:   return "Level"
+        }
+    }
+}
+
 struct MonitorView: View {
     @ObservedObject var ble: BLEManager
+    /// Reset to Data on every launch (per-session state, not @AppStorage).
+    @State private var rightTab: RightPanelTab = .data
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var hSize
     #endif
@@ -52,6 +67,24 @@ struct MonitorView: View {
         #endif
     }
 
+    /// One button in the bottom tab strip: bordered-prominent when selected,
+    /// plain bordered otherwise, all equal-width via `maxWidth: .infinity`.
+    @ViewBuilder
+    private func tabButton(_ tab: RightPanelTab) -> some View {
+        let selected = rightTab == tab
+        if selected {
+            Button { rightTab = tab } label: {
+                Text(tab.label).frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+        } else {
+            Button { rightTab = tab } label: {
+                Text(tab.label).frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+        }
+    }
+
     @ViewBuilder
     private var content: some View {
         #if os(iOS)
@@ -65,7 +98,7 @@ struct MonitorView: View {
         #endif
     }
 
-    /// Map on the left, glance box + data in a fixed column on the right.
+    /// Map on the left, glance box + switchable panel + tab strip on the right.
     private var splitLayout: some View {
         HStack(spacing: 0) {
             MapPanel(packet: ble.latestPacket)
@@ -79,8 +112,20 @@ struct MonitorView: View {
 
                 Divider()
 
-                DataPanel(packet: ble.latestPacket)
-                    .frame(minHeight: 200)
+                switch rightTab {
+                case .data:    DataPanel(packet: ble.latestPacket)
+                case .fixRate: FixRatePanel(ble: ble)
+                case .level:   LevelPanel(packet: ble.latestPacket)
+                }
+
+                Divider()
+
+                HStack(spacing: 10) {
+                    ForEach(RightPanelTab.allCases) { tab in
+                        tabButton(tab)
+                    }
+                }
+                .padding(8)
             }
             .frame(width: 340)
         }
@@ -89,7 +134,8 @@ struct MonitorView: View {
 }
 
 #if os(iOS)
-/// Compact layout: a pinned glance box above a paged Map / Data / G-Force deck.
+/// Compact layout: a pinned glance box above a paged
+/// Map / Data / G-Force / Fix Rate / Level deck.
 private struct CompactMonitor: View {
     @ObservedObject var ble: BLEManager
 
@@ -102,6 +148,8 @@ private struct CompactMonitor: View {
                 MapPage(packet: ble.latestPacket)
                 DataPanel(packet: ble.latestPacket)
                 GForcePanel(packet: ble.latestPacket)
+                FixRatePanel(ble: ble)
+                LevelPanel(packet: ble.latestPacket)
             }
             .tabViewStyle(.page(indexDisplayMode: .always))
             .indexViewStyle(.page(backgroundDisplayMode: .always))

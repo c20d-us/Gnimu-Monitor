@@ -33,6 +33,13 @@ struct DiscoveredDevice: Identifiable {
     var name: String { peripheral.name ?? peripheral.identifier.uuidString }
 }
 
+/// One sample in the fix-rate history: satellite count paired with the iTOW
+/// rate at that moment, so the chart can correlate the two.
+struct FixRateSample {
+    let sv: Int
+    let hz: Double
+}
+
 class BLEManager: NSObject, ObservableObject {
 
     private let serviceUUID = CBUUID(string: "6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
@@ -54,6 +61,13 @@ class BLEManager: NSObject, ObservableObject {
     private let uiUpdateInterval: TimeInterval = 0.1
     private var pruneTimer: Timer?
     private var connectTimer: Timer?
+    private var rateTimer: Timer?
+
+    /// Rolling 2 s window of every parsed packet (not just those that pass the
+    /// UI throttle) used to compute wall-clock arrival rate and iTOW-delta rate.
+    private var recentPackets: [(arrival: Date, itow: UInt32)] = []
+    private let rateWindow: TimeInterval = 2.0
+    private let rateHistoryCapacity = 60   // ~1 sample per second
 
     @Published var discoveredDevices: [DiscoveredDevice] = []
     @Published var selectedPeripheral: CBPeripheral?
@@ -62,6 +76,13 @@ class BLEManager: NSObject, ObservableObject {
     @Published var isScanning = false
     @Published var latestPacket: GnimuPacket?
     @Published var centralStateDescription = "Initializing…"
+
+    /// Rate derived from iTOW deltas over the last ~2 s — this reflects actual
+    /// GNSS fix generation, unaffected by BLE transport jitter.
+    @Published var itowRateHz: Double = 0
+    /// Rolling history of `(sv count, iTOW-rate Hz)` samples, one per second,
+    /// newest last. Charted together to correlate fix rate with SV count.
+    @Published var rateHistory: [FixRateSample] = []
 
     override init() {
         super.init()
@@ -127,6 +148,58 @@ class BLEManager: NSObject, ObservableObject {
         }
     }
 
+    // MARK: - Fix-rate tracking
+
+    private func recordPacketArrival(itow: UInt32) {
+        let now = Date()
+        recentPackets.append((now, itow))
+        trimRateWindow(now: now)
+    }
+
+    private func trimRateWindow(now: Date) {
+        while let first = recentPackets.first, now.timeIntervalSince(first.arrival) > rateWindow {
+            recentPackets.removeFirst()
+        }
+    }
+
+    private func startRateTimer() {
+        rateTimer?.invalidate()
+        rateHistory = []
+        itowRateHz = 0
+        recentPackets = []
+        rateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.sampleRates()
+        }
+    }
+
+    private func stopRateTimer() {
+        rateTimer?.invalidate()
+        rateTimer = nil
+        recentPackets = []
+        itowRateHz = 0
+        rateHistory = []
+    }
+
+    private func sampleRates() {
+        let now = Date()
+        trimRateWindow(now: now)
+
+        if recentPackets.count >= 2, let first = recentPackets.first, let last = recentPackets.last {
+            let n = Double(recentPackets.count - 1)
+            // iTOW is monotonic ms since GPS week start; span may be zero on the
+            // very rare occasion multiple packets share an iTOW.
+            let itowSpanMs = last.itow >= first.itow ? Double(last.itow - first.itow) : 0
+            itowRateHz = itowSpanMs > 0 ? n / (itowSpanMs / 1000.0) : 0
+        } else {
+            itowRateHz = 0
+        }
+
+        rateHistory.append(FixRateSample(sv: Int(latestPacket?.numSV ?? 0), hz: itowRateHz))
+        if rateHistory.count > rateHistoryCapacity {
+            rateHistory.removeFirst(rateHistory.count - rateHistoryCapacity)
+        }
+    }
+
     private func pruneStaleDevices() {
         let now = Date()
         discoveredDevices.removeAll { now.timeIntervalSince($0.lastSeen) > removeAfter }
@@ -143,6 +216,9 @@ class BLEManager: NSObject, ObservableObject {
             guard buffer.count >= 88 else { break }
             let candidate = Data(buffer[0..<88])
             if let packet = GnimuPacket.parse(from: candidate) {
+                // Record every packet for rate tracking (not just those that
+                // survive the UI throttle below).
+                recordPacketArrival(itow: packet.iTOW)
                 newestPacket = packet
                 buffer.removeFirst(88)
             } else {
@@ -206,6 +282,7 @@ extension BLEManager: CBCentralManagerDelegate {
         isConnecting = false
         isConnected = true
         buffer.removeAll()
+        startRateTimer()
         peripheral.discoverServices([serviceUUID])
     }
 
@@ -219,6 +296,7 @@ extension BLEManager: CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         cancelConnectTimer()
+        stopRateTimer()
         isConnecting = false
         isConnected = false
         connectedPeripheral = nil
