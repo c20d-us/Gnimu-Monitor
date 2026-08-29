@@ -274,6 +274,21 @@ extension BLEManager: CBCentralManagerDelegate {
             discoveredDevices[i].isStale = false
         } else {
             discoveredDevices.append(DiscoveredDevice(peripheral: peripheral, rssi: rssi, lastSeen: Date()))
+            sortDiscoveredDevices()
+        }
+    }
+
+    /// Advertisements arrive in an arbitrary order, so keep the list sorted by
+    /// name for a stable picker. `localizedStandardCompare` orders embedded
+    /// numbers naturally ("RaceBox Mini 2" before "RaceBox Mini 10"); the UUID
+    /// tiebreak keeps identically named devices from shuffling between sorts.
+    private func sortDiscoveredDevices() {
+        discoveredDevices.sort {
+            switch $0.name.localizedStandardCompare($1.name) {
+            case .orderedAscending:  return true
+            case .orderedDescending: return false
+            case .orderedSame:       return $0.id.uuidString < $1.id.uuidString
+            }
         }
     }
 

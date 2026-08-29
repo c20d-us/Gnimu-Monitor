@@ -20,11 +20,13 @@ import SwiftUI
 /// satellite count alongside GNSS status (fix type, pDOP, battery).
 struct GlanceBox: View {
     let packet: GnimuPacket?
+    /// Live iTOW fix rate, shown small beneath the speed.
+    let fixRateHz: Double
     @AppStorage("speedUnit") private var speedUnit: SpeedUnit = .kmh
 
     var body: some View {
         ZStack {
-            // Center: speed (tap to toggle units)
+            // Top-center: speed (tap to toggle units)
             VStack(spacing: 2) {
                 Text(String(format: "%.0f", speedUnit.value(fromKmh: packet?.movingSpeedKmh ?? 0)))
                     .font(.system(size: 64, weight: .semibold, design: .rounded))
@@ -37,6 +39,8 @@ struct GlanceBox: View {
             .onTapGesture {
                 withAnimation { speedUnit = speedUnit.toggled }
             }
+            // Pinned to the top edge rather than centered in the box.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
             // Top-left: battery fill icon with the numeric percentage below it
             // (nudged down to line up with the Fix text, whose glyphs sit lower
@@ -56,6 +60,15 @@ struct GlanceBox: View {
                 .font(.system(size: 24, weight: .semibold, design: .rounded))
                 .foregroundStyle(fixColor)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+
+            // Bottom-center: iTOW fix rate — parked on the bottom edge, clear of
+            // the speed units, where it reads as its own value.
+            Text(String(format: "%.1f Hz iTOW", fixRateHz))
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .contentTransition(.numericText())
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
 
             // Bottom-left: satellites
             corner("\(packet?.numSV ?? 0)", "Satellites", color: satelliteColor)
