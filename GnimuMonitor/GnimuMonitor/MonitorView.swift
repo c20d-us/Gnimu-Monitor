@@ -107,7 +107,7 @@ struct MonitorView: View {
             Divider()
 
             VStack(spacing: 0) {
-                GlanceBox(packet: ble.latestPacket, fixRateHz: ble.itowRateHz)
+                GlanceBox(packet: ble.latestPacket, fixRate: ble.fixRate)
                     .padding(12)
 
                 Divider()
@@ -141,7 +141,7 @@ private struct CompactMonitor: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            GlanceBox(packet: ble.latestPacket, fixRateHz: ble.itowRateHz)
+            GlanceBox(packet: ble.latestPacket, fixRate: ble.fixRate)
                 .padding(12)
 
             TabView {
