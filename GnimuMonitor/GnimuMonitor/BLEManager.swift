@@ -38,6 +38,9 @@ struct DiscoveredDevice: Identifiable {
 struct FixRateSample {
     let sv: Int
     let hz: Double
+    /// Fixes missing from the iTOW sequence during this sample, so the chart can
+    /// mark where the stream broke rather than only where the rate sagged.
+    let missed: Int
 }
 
 class BLEManager: NSObject, ObservableObject {
@@ -63,10 +66,9 @@ class BLEManager: NSObject, ObservableObject {
     private var connectTimer: Timer?
     private var rateTimer: Timer?
 
-    /// Rolling 2 s window of every parsed packet (not just those that pass the
-    /// UI throttle) used to compute wall-clock arrival rate and iTOW-delta rate.
-    private var recentPackets: [(arrival: Date, itow: UInt32)] = []
-    private let rateWindow: TimeInterval = 2.0
+    /// Derives fix-rate health from the iTOW timestamps of every parsed packet
+    /// (not just those that pass the UI throttle).
+    private var rateTracker = FixRateTracker()
     private let rateHistoryCapacity = 60   // ~1 sample per second
 
     @Published var discoveredDevices: [DiscoveredDevice] = []
@@ -77,9 +79,9 @@ class BLEManager: NSObject, ObservableObject {
     @Published var latestPacket: GnimuPacket?
     @Published var centralStateDescription = "Initializing…"
 
-    /// Rate derived from iTOW deltas over the last ~2 s — this reflects actual
-    /// GNSS fix generation, unaffected by BLE transport jitter.
-    @Published var itowRateHz: Double = 0
+    /// Fix-rate health derived from iTOW deltas — actual GNSS fix generation,
+    /// unaffected by BLE transport jitter.
+    @Published var fixRate: FixRateReading = .empty
     /// Rolling history of `(sv count, iTOW-rate Hz)` samples, one per second,
     /// newest last. Charted together to correlate fix rate with SV count.
     @Published var rateHistory: [FixRateSample] = []
@@ -151,22 +153,14 @@ class BLEManager: NSObject, ObservableObject {
     // MARK: - Fix-rate tracking
 
     private func recordPacketArrival(itow: UInt32) {
-        let now = Date()
-        recentPackets.append((now, itow))
-        trimRateWindow(now: now)
-    }
-
-    private func trimRateWindow(now: Date) {
-        while let first = recentPackets.first, now.timeIntervalSince(first.arrival) > rateWindow {
-            recentPackets.removeFirst()
-        }
+        rateTracker.record(itow: itow)
     }
 
     private func startRateTimer() {
         rateTimer?.invalidate()
         rateHistory = []
-        itowRateHz = 0
-        recentPackets = []
+        fixRate = .empty
+        rateTracker.reset()
         rateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.sampleRates()
         }
@@ -175,26 +169,18 @@ class BLEManager: NSObject, ObservableObject {
     private func stopRateTimer() {
         rateTimer?.invalidate()
         rateTimer = nil
-        recentPackets = []
-        itowRateHz = 0
+        rateTracker.reset()
+        fixRate = .empty
         rateHistory = []
     }
 
     private func sampleRates() {
-        let now = Date()
-        trimRateWindow(now: now)
+        let reading = rateTracker.evaluate()
+        fixRate = reading
 
-        if recentPackets.count >= 2, let first = recentPackets.first, let last = recentPackets.last {
-            let n = Double(recentPackets.count - 1)
-            // iTOW is monotonic ms since GPS week start; span may be zero on the
-            // very rare occasion multiple packets share an iTOW.
-            let itowSpanMs = last.itow >= first.itow ? Double(last.itow - first.itow) : 0
-            itowRateHz = itowSpanMs > 0 ? n / (itowSpanMs / 1000.0) : 0
-        } else {
-            itowRateHz = 0
-        }
-
-        rateHistory.append(FixRateSample(sv: Int(latestPacket?.numSV ?? 0), hz: itowRateHz))
+        rateHistory.append(FixRateSample(sv: Int(latestPacket?.numSV ?? 0),
+                                         hz: reading.hz,
+                                         missed: reading.missedFixes))
         if rateHistory.count > rateHistoryCapacity {
             rateHistory.removeFirst(rateHistory.count - rateHistoryCapacity)
         }
