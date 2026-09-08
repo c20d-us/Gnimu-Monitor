@@ -25,13 +25,14 @@ import UIKit
 /// Split View) it's a pinned glance box over a swipeable Map/Data deck.
 /// The switchable panel shown in the lower half of the split (Mac/iPad) layout.
 enum RightPanelTab: String, CaseIterable, Identifiable {
-    case data, fixRate, level
+    case data, fixRate, level, capture
     var id: String { rawValue }
     var label: String {
         switch self {
         case .data:    return "Data"
         case .fixRate: return "Fix Rate"
         case .level:   return "Level"
+        case .capture: return "Capture"
         }
     }
 }
@@ -99,6 +100,8 @@ struct MonitorView: View {
     }
 
     /// Map on the left, glance box + switchable panel + tab strip on the right.
+    /// The right column is sized to fit four tab buttons without crowding
+    /// "Fix Rate"; the map absorbs the difference.
     private var splitLayout: some View {
         HStack(spacing: 0) {
             MapPanel(packet: ble.latestPacket)
@@ -116,6 +119,8 @@ struct MonitorView: View {
                 case .data:    DataPanel(packet: ble.latestPacket)
                 case .fixRate: FixRatePanel(ble: ble)
                 case .level:   LevelPanel(packet: ble.latestPacket)
+                case .capture: RecordPanel(ble: ble, recorder: ble.recorder,
+                                           analysis: ble.analysisRunner)
                 }
 
                 Divider()
@@ -127,15 +132,15 @@ struct MonitorView: View {
                 }
                 .padding(8)
             }
-            .frame(width: 340)
+            .frame(width: 400)
         }
-        .frame(minWidth: 760, minHeight: 520)
+        .frame(minWidth: 820, minHeight: 520)
     }
 }
 
 #if os(iOS)
 /// Compact layout: a pinned glance box above a paged
-/// Map / Data / G-Force / Fix Rate / Level deck.
+/// Map / Data / Fix Rate / G-Force / Level / Capture deck.
 private struct CompactMonitor: View {
     @ObservedObject var ble: BLEManager
 
@@ -147,12 +152,37 @@ private struct CompactMonitor: View {
             TabView {
                 MapPage(packet: ble.latestPacket)
                 DataPanel(packet: ble.latestPacket)
-                GForcePanel(packet: ble.latestPacket)
-                FixRatePanel(ble: ble)
-                LevelPanel(packet: ble.latestPacket)
+                TitledPage("Fix Rate") { FixRatePanel(ble: ble) }
+                TitledPage("G-Force") { GForcePanel(packet: ble.latestPacket) }
+                TitledPage("Level") { LevelPanel(packet: ble.latestPacket) }
+                TitledPage("Capture") { RecordPanel(ble: ble, recorder: ble.recorder, analysis: ble.analysisRunner) }
             }
             .tabViewStyle(.page(indexDisplayMode: .always))
             .indexViewStyle(.page(backgroundDisplayMode: .always))
+        }
+    }
+}
+
+/// Names a page in the compact deck. The split layout labels these panels with
+/// its bottom tab strip; the swipeable deck has no such strip, so each of the
+/// non-obvious pages carries its own title instead.
+private struct TitledPage<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: Content
+
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text(title)
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 8)
+
+            content
         }
     }
 }

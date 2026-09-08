@@ -32,7 +32,9 @@ enum SpeedUnit: String, CaseIterable {
     var toggled: SpeedUnit { self == .kmh ? .mph : .kmh }
 }
 
-struct GnimuPacket {
+/// Pure decoded telemetry with pure accessors — explicitly nonisolated so the
+/// offline analyzer can decode captures on a background queue.
+nonisolated struct GnimuPacket {
     let iTOW: UInt32
     let year: UInt16
     let month: UInt8

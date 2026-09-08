@@ -17,6 +17,9 @@
 import Foundation
 import CoreBluetooth
 import Combine
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// A device seen during a scan, with the bookkeeping needed to age it out
 /// once it stops advertising. CoreBluetooth has no "disappeared" callback,
@@ -69,6 +72,16 @@ class BLEManager: NSObject, ObservableObject {
     /// Derives fix-rate health from the iTOW timestamps of every parsed packet
     /// (not just those that pass the UI throttle).
     private var rateTracker = FixRateTracker()
+
+    /// Owns capture-to-disk. Held here rather than in a view so recording
+    /// survives the user swiping between panels.
+    let recorder = SessionRecorder()
+
+    /// Analysis lives here for the same reason: a run started when a capture
+    /// finishes has to outlive whichever panel happened to be on screen.
+    let analysisRunner = AnalysisRunner()
+
+    private var cancellables = Set<AnyCancellable>()
     private let rateHistoryCapacity = 60   // ~1 sample per second
 
     @Published var discoveredDevices: [DiscoveredDevice] = []
@@ -91,6 +104,25 @@ class BLEManager: NSObject, ObservableObject {
         // queue: .main means every delegate callback arrives on the main thread,
         // so @Published mutations are always on the main thread as SwiftUI requires.
         central = CBCentralManager(delegate: self, queue: .main)
+
+        // A finished capture is analysed straight away. The parse takes seconds,
+        // and a report that's already waiting beats one the user has to
+        // remember to ask for.
+        recorder.$lastCapture
+            .compactMap { $0 }
+            .sink { [weak self] capture in self?.autoAnalyze(capture) }
+            .store(in: &cancellables)
+    }
+
+    /// Kicks off analysis of a capture that has just been filed.
+    private func autoAnalyze(_ capture: CompletedCapture) {
+        #if os(iOS)
+        // Recording also stops when the app is backgrounded, and an analysis
+        // started there would be cancelled before it got anywhere. Leave those
+        // for the Analysis panel to offer.
+        guard UIApplication.shared.applicationState == .active else { return }
+        #endif
+        analysisRunner.analyze(url: capture.url)
     }
 
     func startScanning() {
@@ -202,9 +234,10 @@ class BLEManager: NSObject, ObservableObject {
             guard buffer.count >= 88 else { break }
             let candidate = Data(buffer[0..<88])
             if let packet = GnimuPacket.parse(from: candidate) {
-                // Record every packet for rate tracking (not just those that
-                // survive the UI throttle below).
+                // Record every packet for rate tracking and capture (not just
+                // those that survive the UI throttle below).
                 recordPacketArrival(itow: packet.iTOW)
+                recorder.record(frame: candidate)
                 newestPacket = packet
                 buffer.removeFirst(88)
             } else {
@@ -283,6 +316,7 @@ extension BLEManager: CBCentralManagerDelegate {
         isConnecting = false
         isConnected = true
         buffer.removeAll()
+        recorder.beginSession()
         startRateTimer()
         peripheral.discoverServices([serviceUUID])
     }
@@ -298,6 +332,8 @@ extension BLEManager: CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         cancelConnectTimer()
         stopRateTimer()
+        // Flush and file whatever was captured rather than losing the tail.
+        recorder.stop()
         isConnecting = false
         isConnected = false
         connectedPeripheral = nil
