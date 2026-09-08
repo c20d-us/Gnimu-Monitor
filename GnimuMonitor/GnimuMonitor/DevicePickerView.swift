@@ -17,12 +17,22 @@
 import SwiftUI
 import CoreBluetooth
 
-/// The unconnected screen: a compact portrait panel for finding and
-/// selecting a device, then connecting to it.
+/// The unconnected screen: find and connect a device, or work with the
+/// captures already recorded.
+///
+/// Analysis lives here rather than in the connected monitor because it needs no
+/// device at all — and on Mac and iPad this is the only place it appears.
 struct DevicePickerView: View {
     @ObservedObject var ble: BLEManager
     @State private var selectedID: UUID?
+    @State private var mode: Mode = .devices
     @Environment(\.scenePhase) private var scenePhase
+
+    enum Mode: String, CaseIterable, Identifiable {
+        case devices, captures
+        var id: String { rawValue }
+        var label: String { self == .devices ? "Devices" : "Captures" }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -30,11 +40,14 @@ struct DevicePickerView: View {
 
             Divider()
 
-            deviceList
-
-            Divider()
-
-            footer
+            switch mode {
+            case .devices:
+                deviceList
+                Divider()
+                footer
+            case .captures:
+                AnalysisPanel(runner: ble.analysisRunner)
+            }
         }
         .frame(minWidth: 400, idealWidth: 700, minHeight: 600, idealHeight: 1200)
         .onAppear { ble.startScanning() }
@@ -46,15 +59,53 @@ struct DevicePickerView: View {
         }
     }
 
-    // MARK: Header — title
+    // MARK: Header — mode switch
 
+    /// Doubles as the screen's title: it names what's on screen and what else
+    /// is available, without spending a second row on a heading.
+    @ViewBuilder
     private var header: some View {
-        Text("Available Devices")
-            .font(.system(size: 24, weight: .semibold))
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+        #if os(macOS)
+        // AppKit draws a segmented picker as joined buttons rather than the
+        // iOS pill, and segments can't be spaced apart. Rather than hand-roll
+        // the pill, use the separated bordered/prominent pair the connected
+        // layout's tab strip already uses — consistent within the Mac app.
+        HStack(spacing: 10) {
+            ForEach(Mode.allCases) { modeButton($0) }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        #else
+        Picker("", selection: $mode) {
+            ForEach(Mode.allCases) { mode in
+                Text(mode.label).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        #endif
     }
+
+    #if os(macOS)
+    /// Equal-width so the pair spans the header the way the segmented control
+    /// does on iOS.
+    @ViewBuilder
+    private func modeButton(_ candidate: Mode) -> some View {
+        if mode == candidate {
+            Button { mode = candidate } label: {
+                Text(candidate.label).frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+        } else {
+            Button { mode = candidate } label: {
+                Text(candidate.label).frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+        }
+    }
+    #endif
 
     // MARK: Device list
 
@@ -89,6 +140,13 @@ struct DevicePickerView: View {
                     .foregroundStyle(device.isStale ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
                     .tag(device.id)
                     .selectionDisabled(device.isStale)
+                    // The whole row, not just the text, answers the gesture.
+                    .contentShape(Rectangle())
+                    // simultaneousGesture rather than onTapGesture: the List's
+                    // own single-tap selection has to keep working alongside it.
+                    .simultaneousGesture(
+                        TapGesture(count: 2).onEnded { connect(device) }
+                    )
                 }
             }
         }
@@ -127,10 +185,22 @@ struct DevicePickerView: View {
 
     // MARK: Actions
 
+    /// The footer button: connects to whatever is selected.
     private func connect() {
-        guard let device = selectedDevice?.peripheral else { return }
-        ble.selectedPeripheral = device
-        ble.connect(to: device)
+        guard let device = selectedDevice else { return }
+        connect(device)
+    }
+
+    /// Connects to one device directly — the double-tap shortcut.
+    ///
+    /// Takes the device it was given rather than reading the selection, so a
+    /// double tap can't race the selection it just set.
+    private func connect(_ device: DiscoveredDevice) {
+        guard !device.isStale, !ble.isConnecting else { return }
+        // Keep the row highlighted to match what's being connected.
+        selectedID = device.id
+        ble.selectedPeripheral = device.peripheral
+        ble.connect(to: device.peripheral)
     }
 }
 

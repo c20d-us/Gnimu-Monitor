@@ -1,5 +1,31 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<dict/>
+<dict>
+	<!-- Publishes the app's Documents directory as "Gnimu Monitor" under
+	     "On My iPhone" in the Files app, so captures can be opened, copied to
+	     iCloud Drive, or AirDropped without going through the app. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+
+	<!-- Surfaces the app's own iCloud container as a "Gnimu Monitor" folder in
+	     iCloud Drive, so captures sync off the device and are visible in Files
+	     and Finder. Paired with the iCloud capability in GnimuMonitor.entitlements;
+	     SessionRecorder falls back to local storage if the container won't
+	     resolve (not signed in to iCloud, or iCloud Drive turned off). -->
+	<key>NSUbiquitousContainers</key>
+	<dict>
+		<key>iCloud.us.c20d.GnimuMonitor</key>
+		<dict>
+			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
+			<true/>
+			<key>NSUbiquitousContainerName</key>
+			<string>Gnimu Monitor</string>
+			<key>NSUbiquitousContainerSupportedFolderLevels</key>
+			<string>Any</string>
+		</dict>
+	</dict>
+</dict>
 </plist>

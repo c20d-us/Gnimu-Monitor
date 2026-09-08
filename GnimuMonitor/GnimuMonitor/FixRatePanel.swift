@@ -100,8 +100,12 @@ struct FixRatePanel: View {
         // `sessionIntervals` counts only the fixes that arrived, so the missed
         // ones have to be added back to state what the device should have sent.
         let expected = rate.sessionIntervals + rate.sessionMissed
+        let errorRate = expected > 0
+            ? Double(rate.sessionMissed) / Double(expected) * 100
+            : 0
         var line = "\(rate.sessionMissed.formatted()) missed of "
             + "\(expected.formatted()) fixes expected this session"
+            + String(format: " · %.2f%% error rate", errorRate)
         if rate.sessionInterruptions > 0 {
             let count = rate.sessionInterruptions
             line += " · \(count.formatted()) interruption\(count == 1 ? "" : "s")"

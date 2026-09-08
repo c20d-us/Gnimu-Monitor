@@ -16,6 +16,12 @@
 
 import SwiftUI
 
+/// Identifier for the report window scene, shared between the scene that
+/// declares it and the panel that opens it.
+enum ReportWindow {
+    static let id = "gnimu-report"
+}
+
 @main
 struct GnimuMonitorApp: App {
     var body: some Scene {
@@ -23,5 +29,23 @@ struct GnimuMonitorApp: App {
             ContentView()
         }
         .gnimuWindowDefaults()
+
+        #if os(macOS)
+        // A real window rather than a sheet: macOS sheets can't be resized, and
+        // a long report is exactly the thing you want to make taller. It also
+        // lets a report stay open while you browse other captures, and lets
+        // several be open at once.
+        WindowGroup(id: ReportWindow.id, for: ReportSelection.self) { $selection in
+            if let selection {
+                ReportViewer(selection: selection)
+                    .frame(minWidth: 900, minHeight: 420)
+            }
+        }
+        .defaultSize(width: 1300, height: 900)
+        .defaultPosition(.center)
+        // contentMinSize, not contentSize: the window can be dragged to any
+        // size at or above the content's minimum.
+        .windowResizability(.contentMinSize)
+        #endif
     }
 }
