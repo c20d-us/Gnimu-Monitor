@@ -40,10 +40,40 @@ Open `GnimuMonitor/GnimuMonitor.xcodeproj` in Xcode and build for your target de
 
 | Device Picker | Live Map | Data Panel | G-Force Meter |
 | :---: | :---: | :---: | :---: |
-| <img src="screenshots/iphone-device-picker.png" width="185"> | <img src="screenshots/iphone-live-map.png" width="185"> | <img src="screenshots/iphone-data-panel.png" width="185"> | <img src="screenshots/iphone-g-force-meter.png" width="185"> |
+| <img src="screenshots/iPhone-device-picker.png" width="185"> | <img src="screenshots/iPhone-map-panel.png" width="185"> | <img src="screenshots/iPhone-data-panel.png" width="185"> | <img src="screenshots/iPhone-gmeter-panel.png" width="185"> |
 
-## Mac/iPad Screenshots
+| Fix Rate Tracker | Level | Capture |
+| :---: | :---: | :---: |
+| <img src="screenshots/iPhone-fix-rate-tracker-panel.png" width="185"> | <img src="screenshots/iPhone-level-panel.png" width="185"> | <img src="screenshots/iPhone-capture-panel.png" width="185"> |
+
+## iPad Screenshots
 
 | Device Picker | Live Map & Data Panel |
 | :---: | :---: |
-| <img src="screenshots/ipad-device-picker.png" width="391"> | <img src="screenshots/ipad-live-map-and-data.png" width="391"> |
+| <img src="screenshots/iPad-device-picker.png" width="391"> | <img src="screenshots/iPad-data-panel.png" width="391"> |
+
+| Fix Rate Tracker | Level |
+| :---: | :---: |
+| <img src="screenshots/iPad-fix-rate-tracker-panel.png" width="391"> | <img src="screenshots/iPad-level-panel.png" width="391"> |
+
+| Capture | Capture in Progress |
+| :---: | :---: |
+| <img src="screenshots/iPad-capture-panel.png" width="391"> | <img src="screenshots/iPad-capture-progress-panel.png" width="391"> |
+
+| Capture Complete | Capture List |
+| :---: | :---: |
+| <img src="screenshots/iPad-capture-complete-panel.png" width="391"> | <img src="screenshots/iPad-capture-list.png" width="391"> |
+
+## Mac Screenshots
+
+| Device Picker | Capture List |
+| :---: | :---: |
+| <img src="screenshots/macOS-device-picker.png" width="250"> | <img src="screenshots/macOS-capture-list.png" width="250"> |
+
+| Live Map & Data Panel | Fix Rate Tracker |
+| :---: | :---: |
+| <img src="screenshots/macOS-data-panel.png" width="391"> | <img src="screenshots/macOS-fix-rate-tracker-panel.png" width="391"> |
+
+| Level | Capture |
+| :---: | :---: |
+| <img src="screenshots/macOS-level-panel.png" width="391"> | <img src="screenshots/macOS-record-capture-panel.png" width="391"> |
