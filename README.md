@@ -1,8 +1,8 @@
 <p>
-  <img src="branding/svg/gnimu-icon-default-rounded.svg" alt="Gnimu icon" height="72">
+  <img src="https://raw.githubusercontent.com/c20d-us/Gnimu-branding/main/svg/gnimu-icon-default-rounded.svg" alt="Gnimu icon" height="72">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="branding/wordmark/gnimu-wordmark-transparent-white.svg">
-    <img src="branding/wordmark/gnimu-wordmark-transparent-navy.svg" alt="gnimu" height="72">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/c20d-us/Gnimu-branding/main/wordmark/gnimu-wordmark-transparent-white.svg">
+    <img src="https://raw.githubusercontent.com/c20d-us/Gnimu-branding/main/wordmark/gnimu-wordmark-transparent-navy.svg" alt="gnimu" height="72">
   </picture>
 </p>
 
@@ -33,6 +33,8 @@ The units for ground speed can be toggled between MPH and KPH by tapping or clic
 ## License
 
 This project is licensed under the GNU General Public License, version 3 or (at your option) any later version. See [LICENSE](LICENSE) for details.
+
+The Gnimu name and logo are not covered by this license. See the [Gnimu branding usage policy](https://github.com/c20d-us/Gnimu-branding/blob/main/LICENSE.md).
 
 ## Requirements
 
