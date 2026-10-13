@@ -277,7 +277,7 @@ private struct MonitorBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            if let name = ble.selectedPeripheral?.name {
+            if let name = ble.selectedDeviceName ?? ble.selectedPeripheral?.name {
                 Text(name).font(.title3.weight(.semibold))
             }
 

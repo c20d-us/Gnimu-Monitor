@@ -134,6 +134,7 @@ struct DevicePickerView: View {
                             .foregroundStyle(.secondary)
                         Text(device.name)
                             .fontWeight(.semibold)
+                        ProtocolChip(deviceProtocol: device.deviceProtocol)
                         Spacer()
                         SignalBars(rssi: device.rssi)
                     }
@@ -200,7 +201,20 @@ struct DevicePickerView: View {
         // Keep the row highlighted to match what's being connected.
         selectedID = device.id
         ble.selectedPeripheral = device.peripheral
-        ble.connect(to: device.peripheral)
+        ble.connect(to: device)
+    }
+}
+
+/// The protocol a listed device speaks, as a small capsule beside its name.
+struct ProtocolChip: View {
+    let deviceProtocol: DeviceProtocol
+
+    var body: some View {
+        Text(deviceProtocol.displayName)
+            .font(.caption2.weight(.medium))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(.quaternary, in: Capsule())
     }
 }
 

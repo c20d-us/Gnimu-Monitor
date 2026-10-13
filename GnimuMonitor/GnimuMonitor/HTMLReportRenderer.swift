@@ -262,7 +262,6 @@ extension HTMLReportRenderer {
 extension HTMLReportRenderer {
 
     static func body(_ a: CaptureAnalysis) -> String {
-        let s = a.summary
         var out = "<div class=\"wrap\">"
 
         // Header

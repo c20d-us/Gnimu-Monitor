@@ -367,8 +367,8 @@ final class SessionRecorder: ObservableObject {
         if let peripheralID { device["peripheralId"] = peripheralID }
 
         var capture: [String: Any] = [
-            "protocol": "racebox",
-            "frameBytes": 88,
+            "protocol": DeviceProtocol.raceBox.rawValue,
+            "frameBytes": DeviceProtocol.raceBox.frameBytes,
             "encoding": "base64",
             // Says how to read the "t" on every packet line.
             "timeBase": "seconds since startedAt, monotonic"

@@ -77,7 +77,7 @@ struct RecordPanel: View {
             if recorder.isRecording {
                 recorder.stop()
             } else {
-                recorder.start(deviceName: ble.selectedPeripheral?.name,
+                recorder.start(deviceName: ble.selectedDeviceName ?? ble.selectedPeripheral?.name,
                                peripheralID: ble.selectedPeripheral?.identifier.uuidString,
                                nominalHz: ble.fixRate.nominalHz)
             }

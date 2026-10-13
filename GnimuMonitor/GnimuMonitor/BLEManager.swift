@@ -32,8 +32,16 @@ struct DiscoveredDevice: Identifiable {
     /// not connectable, but kept briefly in case it comes back.
     var isStale: Bool = false
 
+    /// Fixed when the device is first listed: a later advertisement may omit
+    /// the service the first one carried.
+    let deviceProtocol: DeviceProtocol
+
+    /// The name from the latest advertisement. `peripheral.name` is the OS's
+    /// cached copy, which keeps a device's old name until the next connection.
+    var advertisedName: String?
+
     var id: UUID { peripheral.identifier }
-    var name: String { peripheral.name ?? peripheral.identifier.uuidString }
+    var name: String { advertisedName ?? peripheral.name ?? peripheral.identifier.uuidString }
 }
 
 /// One sample in the fix-rate history: satellite count paired with the iTOW
@@ -48,8 +56,8 @@ struct FixRateSample {
 
 class BLEManager: NSObject, ObservableObject {
 
-    private let serviceUUID = CBUUID(string: "6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
-    private let txCharUUID  = CBUUID(string: "6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
+    /// The protocol of the device being read.
+    private var deviceProtocol = DeviceProtocol.raceBox
 
     /// How long without an advertisement before a device is dimmed, then removed.
     /// Kept above a couple of advertising intervals so a missed beacon doesn't flicker rows.
@@ -62,7 +70,7 @@ class BLEManager: NSObject, ObservableObject {
 
     private var central: CBCentralManager!
     private var connectedPeripheral: CBPeripheral?
-    private var buffer: [UInt8] = []
+    private var decoder = DeviceProtocol.raceBox.makeDecoder()
     private var lastUIUpdate: Date = .distantPast
     private let uiUpdateInterval: TimeInterval = 0.1
     private var pruneTimer: Timer?
@@ -86,6 +94,9 @@ class BLEManager: NSObject, ObservableObject {
 
     @Published var discoveredDevices: [DiscoveredDevice] = []
     @Published var selectedPeripheral: CBPeripheral?
+    /// The selected device's name as the picker showed it, for the title and
+    /// capture header: `selectedPeripheral?.name` can still be a stale cached name.
+    @Published var selectedDeviceName: String?
     @Published var isConnected = false
     @Published var isConnecting = false
     @Published var isScanning = false
@@ -143,12 +154,15 @@ class BLEManager: NSObject, ObservableObject {
         pruneTimer = nil
     }
 
-    func connect(to device: CBPeripheral) {
+    func connect(to device: DiscoveredDevice) {
         stopScanning()
-        connectedPeripheral = device
+        deviceProtocol = device.deviceProtocol
+        decoder = deviceProtocol.makeDecoder()
+        selectedDeviceName = device.name
+        connectedPeripheral = device.peripheral
         isConnecting = true
-        device.delegate = self
-        central.connect(device)
+        device.peripheral.delegate = self
+        central.connect(device.peripheral)
         // CoreBluetooth retries indefinitely with no error, so bound the wait
         // in case the device has gone offline since it was selected.
         connectTimer = Timer.scheduledTimer(withTimeInterval: connectTimeout, repeats: false) { [weak self] _ in
@@ -171,6 +185,7 @@ class BLEManager: NSObject, ObservableObject {
         if let p = connectedPeripheral { central.cancelPeripheralConnection(p) }
         connectedPeripheral = nil
         selectedPeripheral = nil
+        selectedDeviceName = nil
         isConnecting = false
     }
 
@@ -226,23 +241,14 @@ class BLEManager: NSObject, ObservableObject {
         }
     }
 
-    private func processBuffer() {
+    private func ingest(_ notification: Data) {
         var newestPacket: GnimuPacket?
-        while buffer.count >= 88 {
-            guard let syncOffset = findSync() else { buffer.removeAll(); return }
-            if syncOffset > 0 { buffer.removeFirst(syncOffset) }
-            guard buffer.count >= 88 else { break }
-            let candidate = Data(buffer[0..<88])
-            if let packet = GnimuPacket.parse(from: candidate) {
-                // Record every packet for rate tracking and capture (not just
-                // those that survive the UI throttle below).
-                recordPacketArrival(itow: packet.iTOW)
-                recorder.record(frame: candidate)
-                newestPacket = packet
-                buffer.removeFirst(88)
-            } else {
-                buffer.removeFirst(1)
-            }
+        for frame in decoder.feed(notification) {
+            // Record every packet for rate tracking and capture (not just
+            // those that survive the UI throttle below).
+            recordPacketArrival(itow: frame.packet.iTOW)
+            recorder.record(frame: frame.raw)
+            newestPacket = frame.packet
         }
         if let packet = newestPacket {
             let now = Date()
@@ -251,13 +257,6 @@ class BLEManager: NSObject, ObservableObject {
                 lastUIUpdate = now
             }
         }
-    }
-
-    private func findSync() -> Int? {
-        for i in 0..<(buffer.count - 1) where buffer[i] == 0xB5 && buffer[i + 1] == 0x62 {
-            return i
-        }
-        return nil
     }
 }
 
@@ -285,21 +284,32 @@ extension BLEManager: CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
-        guard let name = peripheral.name, name.hasPrefix("RaceBox") else { return }
         let rssi = RSSI.intValue
+        // Only some advertisements carry the name (it rides in the scan
+        // response), so a missing one says nothing about the name.
+        let advertisedName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
         if let i = discoveredDevices.firstIndex(where: { $0.id == peripheral.identifier }) {
             discoveredDevices[i].rssi = rssi
             discoveredDevices[i].lastSeen = Date()
             discoveredDevices[i].isStale = false
+            if let advertisedName, advertisedName != discoveredDevices[i].advertisedName {
+                discoveredDevices[i].advertisedName = advertisedName
+                sortDiscoveredDevices()
+            }
         } else {
-            discoveredDevices.append(DiscoveredDevice(peripheral: peripheral, rssi: rssi, lastSeen: Date()))
+            let services = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
+            guard let deviceProtocol = DeviceProtocol.identify(name: advertisedName ?? peripheral.name,
+                                                               advertisedServices: services) else { return }
+            discoveredDevices.append(DiscoveredDevice(peripheral: peripheral, rssi: rssi, lastSeen: Date(),
+                                                      deviceProtocol: deviceProtocol,
+                                                      advertisedName: advertisedName))
             sortDiscoveredDevices()
         }
     }
 
     /// Advertisements arrive in an arbitrary order, so keep the list sorted by
     /// name for a stable picker. `localizedStandardCompare` orders embedded
-    /// numbers naturally ("RaceBox Mini 2" before "RaceBox Mini 10"); the UUID
+    /// numbers naturally ("Gnimu-RB 2" before "Gnimu-RB 10"); the UUID
     /// tiebreak keeps identically named devices from shuffling between sorts.
     private func sortDiscoveredDevices() {
         discoveredDevices.sort {
@@ -315,10 +325,10 @@ extension BLEManager: CBCentralManagerDelegate {
         cancelConnectTimer()
         isConnecting = false
         isConnected = true
-        buffer.removeAll()
+        decoder.reset()
         recorder.beginSession()
         startRateTimer()
-        peripheral.discoverServices([serviceUUID])
+        peripheral.discoverServices([deviceProtocol.serviceUUID])
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
@@ -327,6 +337,7 @@ extension BLEManager: CBCentralManagerDelegate {
         isConnected = false
         connectedPeripheral = nil
         selectedPeripheral = nil
+        selectedDeviceName = nil
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
@@ -338,8 +349,9 @@ extension BLEManager: CBCentralManagerDelegate {
         isConnected = false
         connectedPeripheral = nil
         selectedPeripheral = nil
+        selectedDeviceName = nil
         latestPacket = nil
-        buffer.removeAll()
+        decoder.reset()
     }
 }
 
@@ -347,15 +359,15 @@ extension BLEManager: CBPeripheralDelegate {
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         guard let services = peripheral.services else { return }
-        for service in services where service.uuid == serviceUUID {
-            peripheral.discoverCharacteristics([txCharUUID], for: service)
+        for service in services where service.uuid == deviceProtocol.serviceUUID {
+            peripheral.discoverCharacteristics([deviceProtocol.notifyCharacteristicUUID], for: service)
         }
     }
 
     func peripheral(_ peripheral: CBPeripheral,
                     didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         guard let chars = service.characteristics else { return }
-        for char in chars where char.uuid == txCharUUID {
+        for char in chars where char.uuid == deviceProtocol.notifyCharacteristicUUID {
             peripheral.setNotifyValue(true, for: char)
         }
     }
@@ -363,7 +375,6 @@ extension BLEManager: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral,
                     didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard let value = characteristic.value else { return }
-        buffer.append(contentsOf: value)
-        processBuffer()
+        ingest(value)
     }
 }
