@@ -24,8 +24,8 @@ Gnimu Monitor opens on a device picker. It lists nearby devices that stream the 
 
 Once connected, the screen is laid out for the size of the display.
 
-- **Mac and iPad (wide layouts):** a live map on the left. On the right, a glance box above a switchable panel, with buttons below to choose between **Data**, **Fix Rate**, **Level** and **Capture**.
-- **iPhone (and iPad in Split View):** the glance box stays at the top, above a row of swipeable pages: **Map**, **Data**, **Fix Rate**, **G-Force**, **Level** and **Capture**. The G-Force meter exists only in this layout.
+- **Mac and iPad (wide layouts):** a live map on the left. On the right, a glance box above a switchable panel, with buttons below to choose between **Data**, **Fix Rate**, **Level** and **Capture**, plus **Device** when the connected device supports it.
+- **iPhone (and iPad in Split View):** the glance box stays at the top, above a row of swipeable pages: **Map**, **Data**, **Fix Rate**, **G-Force**, **Level** and **Capture**, plus **Device** when the connected device supports it. The G-Force meter exists only in this layout.
 
 Disconnecting returns to the picker. On iPhone and iPad the screen stays awake while connected, and the connection is dropped when the app goes to the background.
 
@@ -41,6 +41,18 @@ Ground speed in the middle, with battery level (and charging state), satellite c
 - **Level:** a bubble level for mounting the device, driven by the IMU, with pitch and roll readouts. The bubble turns green when the device is within half a degree of level.
 - **G-Force (iPhone):** a lateral and longitudinal g meter with the current magnitude.
 - **Capture:** record the stream, and see the result. See below.
+- **Device:** what the device was built with, and three commands to send it. See below.
+
+## Device configuration and commands
+
+Newer Gnimu firmware lets a connected client read the device's configuration and send it commands (see the Gnimu [device commands documentation](https://github.com/c20d-us/Gnimu/blob/main/docs/device-commands.md)). When the connected device offers both, a **Device** panel appears. A device without them shows no Device panel.
+
+- **Firmware:** the device ID, firmware version and revision, build time and target board.
+- **Configuration:** the settings the firmware was built with: GNSS constellations, dynamic mode, fix rate and minimum satellite elevation; IMU axis orientation and accelerometer and gyro smoothing; BLE protocol and transmit power; and, on battery boards, the cutoff, critical, warning and full voltages. These are fixed when the firmware is built, and the Monitor only reads them.
+- **Commands:** **Re-trim** (re-zero the IMU) runs as soon as you tap it. **Restart** and **Shut Down** each ask for confirmation first, because the connection drops while the device restarts and a shut down device has to be power-cycled or woken to come back. The device sends no reply, so Re-trim shows a brief "Sent" and the other two simply end the connection.
+
+All three commands are disabled while a capture is recording, since each would disturb it. The Device panel says so while they are disabled. The device requires no pairing, so any client in range can send these commands.
+
 
 ## Capture and analysis
 
@@ -76,6 +88,17 @@ The Gnimu name and logo are not covered by this license. See the [Gnimu branding
 ## Building
 
 Open `GnimuMonitor/GnimuMonitor.xcodeproj` in Xcode and build for your target device. BLE functionality requires a physical device — the simulator does not support Bluetooth.
+
+The build number shown in the About box is the build date and time (for example `20261015.1930`), stamped into the app at build time.
+
+### Installing from the command line
+
+Two scripts in `scripts/` build a Release version and install it:
+
+- `scripts/install-mac.sh` builds for macOS and copies the app to `/Applications`, quitting the running copy first. Set `DEST` to install somewhere else.
+- `scripts/install-ios.sh` builds for iOS and installs on every paired iPhone and iPad. Pass part of a device name, or a device identifier, to pick one: `scripts/install-ios.sh iPad`. Devices must be unlocked and reachable by USB or Wi-Fi.
+
+Builds go to `build/`, which is not tracked.
 
 ## iPhone Screenshots
 
