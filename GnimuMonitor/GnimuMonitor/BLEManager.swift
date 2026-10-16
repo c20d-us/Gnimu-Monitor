@@ -70,6 +70,9 @@ class BLEManager: NSObject, ObservableObject {
 
     private var central: CBCentralManager!
     private var connectedPeripheral: CBPeripheral?
+    /// Where commands are written, once discovered on the connected device.
+    private var commandCharacteristic: CBCharacteristic?
+    private var configCharacteristic: CBCharacteristic?
     private var decoder = DeviceProtocol.raceBox.makeDecoder()
     private var lastUIUpdate: Date = .distantPast
     private let uiUpdateInterval: TimeInterval = 0.1
@@ -102,6 +105,13 @@ class BLEManager: NSObject, ObservableObject {
     @Published var isScanning = false
     @Published var latestPacket: GnimuPacket?
     @Published var centralStateDescription = "Initializing…"
+
+    /// True once the connected device is found to offer the configuration
+    /// characteristic and a way to take commands: that is, newer Gnimu
+    /// firmware. The Device panel appears only then.
+    @Published var supportsDeviceControl = false
+    /// The device's configuration text, parsed. Nil until the read returns.
+    @Published var deviceConfig: DeviceConfig?
 
     /// Fix-rate health derived from iTOW deltas — actual GNSS fix generation,
     /// unaffected by BLE transport jitter.
@@ -173,6 +183,24 @@ class BLEManager: NSObject, ObservableObject {
     func disconnect() {
         guard let p = connectedPeripheral else { return }
         central.cancelPeripheralConnection(p)
+    }
+
+    /// Sends a command to the device. Written without response: the device
+    /// never replies, and a restart or shutdown simply drops the connection.
+    func send(_ command: DeviceCommand) {
+        guard let p = connectedPeripheral, let char = commandCharacteristic else { return }
+        p.writeValue(command.frame, for: char, type: .withoutResponse)
+    }
+
+    private func clearDeviceControl() {
+        commandCharacteristic = nil
+        configCharacteristic = nil
+        supportsDeviceControl = false
+        deviceConfig = nil
+    }
+
+    private func updateDeviceControlSupport() {
+        supportsDeviceControl = commandCharacteristic != nil && configCharacteristic != nil
     }
 
     private func cancelConnectTimer() {
@@ -326,9 +354,10 @@ extension BLEManager: CBCentralManagerDelegate {
         isConnecting = false
         isConnected = true
         decoder.reset()
+        clearDeviceControl()
         recorder.beginSession()
         startRateTimer()
-        peripheral.discoverServices([deviceProtocol.serviceUUID])
+        peripheral.discoverServices([deviceProtocol.serviceUUID, GnimuDevice.serviceUUID])
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
@@ -352,6 +381,7 @@ extension BLEManager: CBCentralManagerDelegate {
         selectedDeviceName = nil
         latestPacket = nil
         decoder.reset()
+        clearDeviceControl()
     }
 }
 
@@ -359,22 +389,44 @@ extension BLEManager: CBPeripheralDelegate {
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         guard let services = peripheral.services else { return }
-        for service in services where service.uuid == deviceProtocol.serviceUUID {
-            peripheral.discoverCharacteristics([deviceProtocol.notifyCharacteristicUUID], for: service)
+        for service in services {
+            if service.uuid == deviceProtocol.serviceUUID {
+                peripheral.discoverCharacteristics(
+                    [deviceProtocol.notifyCharacteristicUUID, GnimuDevice.commandCharacteristicUUID],
+                    for: service)
+            } else if service.uuid == GnimuDevice.serviceUUID {
+                peripheral.discoverCharacteristics([GnimuDevice.configCharacteristicUUID], for: service)
+            }
         }
     }
 
     func peripheral(_ peripheral: CBPeripheral,
                     didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         guard let chars = service.characteristics else { return }
-        for char in chars where char.uuid == deviceProtocol.notifyCharacteristicUUID {
-            peripheral.setNotifyValue(true, for: char)
+        for char in chars {
+            switch char.uuid {
+            case deviceProtocol.notifyCharacteristicUUID:
+                peripheral.setNotifyValue(true, for: char)
+            case GnimuDevice.commandCharacteristicUUID:
+                commandCharacteristic = char
+            case GnimuDevice.configCharacteristicUUID:
+                configCharacteristic = char
+                // Fixed at boot, so one read is enough.
+                peripheral.readValue(for: char)
+            default:
+                break
+            }
         }
+        updateDeviceControlSupport()
     }
 
     func peripheral(_ peripheral: CBPeripheral,
                     didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard let value = characteristic.value else { return }
-        ingest(value)
+        if characteristic.uuid == GnimuDevice.configCharacteristicUUID {
+            deviceConfig = String(data: value, encoding: .utf8).flatMap { DeviceConfig(text: $0) }
+        } else {
+            ingest(value)
+        }
     }
 }

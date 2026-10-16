@@ -68,6 +68,7 @@
 				832C89182FD6543C007AE902 /* Sources */,
 				832C89192FD6543C007AE902 /* Frameworks */,
 				832C891A2FD6543C007AE902 /* Resources */,
+				832C89F02FD6543D007AE9A1 /* Stamp Build Number */,
 			);
 			buildRules = (
 			);
@@ -126,6 +127,29 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		832C89F02FD6543D007AE9A1 /* Stamp Build Number */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
+			);
+			name = "Stamp Build Number";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Stamp the build date into the built app as its build number (CFBundleVersion),\n# e.g. 20261015.1930. Runs before code signing, so the signature covers it.\nBUILD_NUMBER=$(date +%Y%m%d.%H%M)\nPLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n/usr/libexec/PlistBuddy -c \"Set :CFBundleVersion ${BUILD_NUMBER}\" \"${PLIST}\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		832C89182FD6543C007AE902 /* Sources */ = {
@@ -275,6 +299,7 @@
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readwrite;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = GnimuMonitor/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Gnimu Monitor";
@@ -337,6 +362,7 @@
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readwrite;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = GnimuMonitor/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Gnimu Monitor";

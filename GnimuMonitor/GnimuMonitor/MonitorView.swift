@@ -25,7 +25,7 @@ import UIKit
 /// Split View) it's a pinned glance box over a swipeable Map/Data deck.
 /// The switchable panel shown in the lower half of the split (Mac/iPad) layout.
 enum RightPanelTab: String, CaseIterable, Identifiable {
-    case data, fixRate, level, capture
+    case data, fixRate, level, capture, device
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -33,6 +33,7 @@ enum RightPanelTab: String, CaseIterable, Identifiable {
         case .fixRate: return "Fix Rate"
         case .level:   return "Level"
         case .capture: return "Capture"
+        case .device:  return "Device"
         }
     }
 }
@@ -41,6 +42,11 @@ struct MonitorView: View {
     @ObservedObject var ble: BLEManager
     /// Reset to Data on every launch (per-session state, not @AppStorage).
     @State private var rightTab: RightPanelTab = .data
+
+    /// The Device tab exists only for devices that offer configuration and commands.
+    private var availableTabs: [RightPanelTab] {
+        RightPanelTab.allCases.filter { $0 != .device || ble.supportsDeviceControl }
+    }
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var hSize
     #endif
@@ -75,14 +81,19 @@ struct MonitorView: View {
         let selected = rightTab == tab
         if selected {
             Button { rightTab = tab } label: {
-                Text(tab.label).frame(maxWidth: .infinity)
+                Text(tab.label).lineLimit(1).minimumScaleFactor(0.8).frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
         } else {
             Button { rightTab = tab } label: {
-                Text(tab.label).frame(maxWidth: .infinity)
+                Text(tab.label).lineLimit(1).minimumScaleFactor(0.8).frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
+            #if os(iOS)
+            // The system fill is nearly the colour of the bar behind it on iPad;
+            // a darker backing makes the unselected tabs read as buttons.
+            .background(Color.primary.opacity(0.10), in: Capsule())
+            #endif
         }
     }
 
@@ -100,47 +111,64 @@ struct MonitorView: View {
     }
 
     /// Map on the left, glance box + switchable panel + tab strip on the right.
-    /// The right column is sized to fit four tab buttons without crowding
-    /// "Fix Rate"; the map absorbs the difference.
+    /// The right column takes about 45% of the width, between 460 and 600 pt:
+    /// enough for five tab buttons and the Device panel's rows, while the map
+    /// keeps the rest. Sizing it from the available width (not a fixed 480)
+    /// keeps the layout inside a portrait iPad or a narrow Mac window.
     private var splitLayout: some View {
-        HStack(spacing: 0) {
-            MapPanel(packet: ble.latestPacket)
-                .frame(minWidth: 400)
-
-            Divider()
-
-            VStack(spacing: 0) {
-                GlanceBox(packet: ble.latestPacket, fixRate: ble.fixRate)
-                    .padding(12)
+        GeometryReader { geo in
+            let rightWidth = min(600, max(460, geo.size.width * 0.45))
+            HStack(spacing: 0) {
+                MapPanel(packet: ble.latestPacket)
+                    .frame(maxWidth: .infinity)
 
                 Divider()
 
-                switch rightTab {
-                case .data:    DataPanel(packet: ble.latestPacket)
-                case .fixRate: FixRatePanel(ble: ble)
-                case .level:   LevelPanel(packet: ble.latestPacket)
-                case .capture: RecordPanel(ble: ble, recorder: ble.recorder,
-                                           analysis: ble.analysisRunner)
-                }
+                VStack(spacing: 0) {
+                    GlanceBox(packet: ble.latestPacket, fixRate: ble.fixRate)
+                        .padding(12)
 
-                Divider()
+                    Divider()
 
-                HStack(spacing: 10) {
-                    ForEach(RightPanelTab.allCases) { tab in
-                        tabButton(tab)
+                    Group {
+                        switch rightTab {
+                        case .data:    DataPanel(packet: ble.latestPacket)
+                        case .fixRate: FixRatePanel(ble: ble)
+                        case .level:   LevelPanel(packet: ble.latestPacket)
+                        case .capture: RecordPanel(ble: ble, recorder: ble.recorder,
+                                                   analysis: ble.analysisRunner)
+                        case .device:  DevicePanel(ble: ble, recorder: ble.recorder)
+                        }
                     }
+                    // Scrolling content stays above the tab strip.
+                    .clipped()
+
+                    Divider()
+
+                    HStack(spacing: 10) {
+                        ForEach(availableTabs) { tab in
+                            tabButton(tab)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.top, 8)
+                    .padding(.bottom, 10)
+                    .background(.bar)
                 }
-                .padding(8)
+                .frame(width: rightWidth)
+                // The column runs down into the iPad's home-indicator inset, so
+                // the strip (and the divider above it) sit at the screen bottom
+                // instead of leaving a band under it.
+                .ignoresSafeArea(.container, edges: .bottom)
             }
-            .frame(width: 400)
         }
-        .frame(minWidth: 820, minHeight: 520)
+        .frame(minWidth: 760, minHeight: 520)
     }
 }
 
 #if os(iOS)
 /// Compact layout: a pinned glance box above a paged
-/// Map / Data / Fix Rate / G-Force / Level / Capture deck.
+/// Map / Data / Fix Rate / G-Force / Level / Capture (/ Device) deck.
 private struct CompactMonitor: View {
     @ObservedObject var ble: BLEManager
 
@@ -156,6 +184,9 @@ private struct CompactMonitor: View {
                 TitledPage("G-Force") { GForcePanel(packet: ble.latestPacket) }
                 TitledPage("Level") { LevelPanel(packet: ble.latestPacket) }
                 TitledPage("Capture") { RecordPanel(ble: ble, recorder: ble.recorder, analysis: ble.analysisRunner) }
+                if ble.supportsDeviceControl {
+                    DevicePanel(ble: ble, recorder: ble.recorder)
+                }
             }
             .tabViewStyle(.page(indexDisplayMode: .always))
             .indexViewStyle(.page(backgroundDisplayMode: .always))
