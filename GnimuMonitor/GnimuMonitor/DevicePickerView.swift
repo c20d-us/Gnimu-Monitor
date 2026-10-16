@@ -16,6 +16,9 @@
 
 import SwiftUI
 import CoreBluetooth
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// The unconnected screen: find and connect a device, or work with the
 /// captures already recorded.
@@ -26,6 +29,8 @@ struct DevicePickerView: View {
     @ObservedObject var ble: BLEManager
     @State private var selectedID: UUID?
     @State private var mode: Mode = .devices
+    /// Set briefly after the version line is tapped, to confirm the copy.
+    @State private var versionCopied = false
     @Environment(\.scenePhase) private var scenePhase
 
     enum Mode: String, CaseIterable, Identifiable {
@@ -162,17 +167,55 @@ struct DevicePickerView: View {
     // MARK: Footer — Connect
 
     private var footer: some View {
-        Button(action: connect) {
-            HStack(spacing: 6) {
-                if ble.isConnecting { ProgressView().scaleEffect(0.6) }
-                Text(ble.isConnecting ? "Connecting…" : "Connect")
+        VStack(spacing: 8) {
+            Button(action: connect) {
+                HStack(spacing: 6) {
+                    if ble.isConnecting { ProgressView().scaleEffect(0.6) }
+                    Text(ble.isConnecting ? "Connecting…" : "Connect")
+                }
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(!canConnect)
+
+            #if os(iOS)
+            // iPhone and iPad have no About box, so the version lives here.
+            // Tap to copy, for bug reports.
+            Button {
+                UIPasteboard.general.string = Self.versionText
+                versionCopied = true
+                Task {
+                    try? await Task.sleep(for: .seconds(1.5))
+                    versionCopied = false
+                }
+            } label: {
+                Text(versionCopied ? "Copied" : Self.versionText)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .monospacedDigit()
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Self.versionText)
+            .accessibilityHint("Copies the version to the clipboard")
+            #endif
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-        .disabled(!canConnect)
-        .padding(16)
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
+        #if os(iOS)
+        .padding(.bottom, 8)
+        #else
+        .padding(.bottom, 16)
+        #endif
+    }
+
+    /// "Version 1.0 (20261016.0930)": the marketing version and the build-date
+    /// build number stamped in at build time.
+    private static var versionText: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "Version \(version) (\(build))"
     }
 
     /// The currently selected device, if it's still present and reachable.
