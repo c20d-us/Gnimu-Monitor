@@ -36,6 +36,10 @@ nonisolated enum CaptureAnalyzer {
     private static let interruptionPeriods = 10.0
     /// Output periods RaceBox devices actually use, in ms: 25, 20, 10, 5, 1 Hz.
     private static let standardPeriodsMs: [Double] = [40, 50, 100, 200, 1000]
+    /// Consecutive intervals a new standard period must hold before it replaces
+    /// the nominal. A single dropped fix at 20 Hz or 10 Hz lands exactly on the
+    /// next standard period (100 / 200 ms), so one interval proves nothing.
+    private static let nominalConfirmIntervals = 20
 
     /// Arrivals closer together than this are one BLE notification burst rather
     /// than separate deliveries.
@@ -130,6 +134,20 @@ nonisolated enum CaptureAnalyzer {
         // Cadence
         var nominalMs: Double?
         var nominalChanges: [CaptureAnalysis.Summary.NominalChange] = []
+        /// Intervals whose classification waits on the nominal being settled.
+        struct PendingInterval {
+            let t: Double
+            let deltaMs: Double
+            let arrivalGapMs: Double
+            let previousITOW: UInt32
+            let packet: GnimuPacket
+        }
+        var pending: [PendingInterval] = []
+        /// A standard period other than the nominal, and how many intervals in
+        /// a row have held it so far.
+        var candidateMs: Double?
+        var candidateRun = 0
+        var candidateStartT = 0.0
         var intervalHistogram: [Int: Int] = [:]
         var intervalStats = RunningStats()
         var onCadence = 0, late = 0, anomalous = 0, interruptions = 0
@@ -290,29 +308,68 @@ nonisolated enum CaptureAnalyzer {
             guard let previous, let prevT = previousT else { return }
             let deltaMs = Double(packet.iTOW) - Double(previous.iTOW)
 
-            // Establish nominal from the first plausible interval, then adopt a
-            // change only when a new standard period holds.
-            if deltaMs > 0, let snapped = CaptureAnalyzer.snapToStandard(deltaMs) {
-                if nominalMs == nil {
-                    nominalMs = snapped
-                } else if let current = nominalMs, current != snapped,
-                          abs(deltaMs - snapped) <= snapped * 0.1 {
-                    nominalChanges.append(.init(t: t,
-                                                fromHz: 1000 / current,
-                                                toHz: 1000 / snapped))
-                    nominalMs = snapped
-                }
-            }
-            guard let nominal = nominalMs else { return }
-
             if deltaMs > 0 {
                 intervalHistogram[Int(deltaMs.rounded()), default: 0] += 1
                 intervalStats.add(deltaMs)
                 sFixRate.add(t: t, value: 1000 / deltaMs)
             }
+            longestGapMs = max(longestGapMs, deltaMs)
 
-            let arrivalGapMs = (t - prevT) * 1000
-            switch CaptureAnalyzer.classify(deltaMs: deltaMs, nominalMs: nominal) {
+            settleNominal(PendingInterval(t: t, deltaMs: deltaMs,
+                                          arrivalGapMs: (t - prevT) * 1000,
+                                          previousITOW: previous.iTOW, packet: packet))
+        }
+
+        /// Holds intervals back while a different standard period is proving
+        /// itself, so a single dropped fix can't redefine the nominal it should
+        /// be judged by.
+        private mutating func settleNominal(_ interval: PendingInterval) {
+            let onStandard = interval.deltaMs > 0
+                ? CaptureAnalyzer.snapToStandard(interval.deltaMs)
+                    .flatMap { abs(interval.deltaMs - $0) <= $0 * 0.1 ? $0 : nil }
+                : nil
+
+            guard let period = onStandard, period != nominalMs else {
+                // Not a new period, so any held run was just a drop. Once a
+                // nominal exists, everything held belongs to it.
+                candidateMs = nil
+                candidateRun = 0
+                pending.append(interval)
+                if nominalMs != nil { flushPending() }
+                return
+            }
+
+            if period != candidateMs {
+                if nominalMs != nil { flushPending() }   // the previous run broke
+                candidateMs = period
+                candidateRun = 0
+                candidateStartT = interval.t
+            }
+            pending.append(interval)
+            candidateRun += 1
+
+            if candidateRun >= CaptureAnalyzer.nominalConfirmIntervals {
+                if let current = nominalMs {
+                    nominalChanges.append(.init(t: candidateStartT,
+                                                fromHz: 1000 / current,
+                                                toHz: 1000 / period))
+                }
+                nominalMs = period
+                candidateMs = nil
+                candidateRun = 0
+                flushPending()
+            }
+        }
+
+        /// Classifies everything held, oldest first, against the settled nominal.
+        private mutating func flushPending() {
+            guard let nominal = nominalMs else { return }
+            for interval in pending { classify(interval, nominal: nominal) }
+            pending.removeAll(keepingCapacity: true)
+        }
+
+        private mutating func classify(_ iv: PendingInterval, nominal: Double) {
+            switch CaptureAnalyzer.classify(deltaMs: iv.deltaMs, nominalMs: nominal) {
             case .onCadence:
                 onCadence += 1
                 receivedIntervals += 1
@@ -322,24 +379,23 @@ nonisolated enum CaptureAnalyzer {
             case .missed(let n):
                 receivedIntervals += 1
                 missedFixes += n
-                sMissed.add(t: t, value: Double(n))
-                noteGap(t: t, deviceGapMs: deltaMs, arrivalGapMs: arrivalGapMs,
-                        missed: n, interruption: false, packet: packet, nominal: nominal)
-                endCleanRun(endedAt: previous.iTOW, resumingAt: t, itow: packet.iTOW)
+                sMissed.add(t: iv.t, value: Double(n))
+                noteGap(t: iv.t, deviceGapMs: iv.deltaMs, arrivalGapMs: iv.arrivalGapMs,
+                        missed: n, interruption: false, packet: iv.packet, nominal: nominal)
+                endCleanRun(endedAt: iv.previousITOW, resumingAt: iv.t, itow: iv.packet.iTOW)
             case .interrupted:
                 interruptions += 1
-                sMissed.add(t: t, value: Double(Int(deltaMs / nominal) - 1))
-                noteGap(t: t, deviceGapMs: deltaMs, arrivalGapMs: arrivalGapMs,
-                        missed: 0, interruption: true, packet: packet, nominal: nominal)
-                endCleanRun(endedAt: previous.iTOW, resumingAt: t, itow: packet.iTOW)
+                sMissed.add(t: iv.t, value: Double(Int(iv.deltaMs / nominal) - 1))
+                noteGap(t: iv.t, deviceGapMs: iv.deltaMs, arrivalGapMs: iv.arrivalGapMs,
+                        missed: 0, interruption: true, packet: iv.packet, nominal: nominal)
+                endCleanRun(endedAt: iv.previousITOW, resumingAt: iv.t, itow: iv.packet.iTOW)
             case .anomalous:
                 anomalous += 1
                 // A duplicate or out-of-order timestamp is a device fault too.
                 // Letting it slide would report the stretches either side of it
                 // as one unbroken clean run.
-                endCleanRun(endedAt: previous.iTOW, resumingAt: t, itow: packet.iTOW)
+                endCleanRun(endedAt: iv.previousITOW, resumingAt: iv.t, itow: iv.packet.iTOW)
             }
-            longestGapMs = max(longestGapMs, deltaMs)
         }
 
         /// The two-clock verdict. A device-side gap moves both clocks together;
@@ -521,6 +577,11 @@ nonisolated enum CaptureAnalyzer {
         // MARK: Finish
 
         mutating func finish(url: URL, analysisDuration: TimeInterval) -> CaptureAnalysis {
+            // A capture can end partway through a candidate run. One too short
+            // to ever settle a nominal takes the period it was running at.
+            if nominalMs == nil { nominalMs = candidateMs }
+            flushPending()
+
             // A session that never dropped a fix has its clean run still open.
             if let startITOW = cleanRunStartITOW, let lastITOW, let start = cleanRunStart {
                 let duration = (Double(lastITOW) - Double(startITOW)) / 1000
