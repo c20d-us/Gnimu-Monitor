@@ -32,7 +32,7 @@ nonisolated enum GnimuDevice {
 
 /// An action the device carries out when it sees the matching eight-byte frame.
 /// The device sends no reply: a restart or shutdown shows as the disconnect.
-nonisolated enum DeviceCommand {
+nonisolated enum DeviceCommand: Equatable {
     case retrim, restart, shutdown
 
     /// UBX-style frame of class 0x47 with no payload, checksum included.
@@ -46,6 +46,28 @@ nonisolated enum DeviceCommand {
 
     /// True for the commands that end the connection.
     var dropsConnection: Bool { self != .retrim }
+}
+
+/// A message about a connection the app ended on purpose, shown on the picker.
+nonisolated struct DeviceNotice: Equatable {
+    let command: DeviceCommand
+    let deviceName: String?
+
+    var message: String {
+        let subject = deviceName ?? "The device"
+        switch command {
+        case .restart:
+            return "\(subject) is restarting. It will reappear in the list once it is advertising again."
+        case .shutdown:
+            return "\(subject) has shut down. Power-cycle it or wake it to bring it back."
+        case .retrim:
+            return ""
+        }
+    }
+
+    var systemImage: String {
+        command == .shutdown ? "power" : "arrow.clockwise"
+    }
 }
 
 /// The device's configuration text, split into what the panel shows. The text

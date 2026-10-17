@@ -15,27 +15,33 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 import SwiftUI
+import Combine
 import MapKit
+
+/// The map's view state, kept above the panel so it survives layout changes:
+/// resizing a window can swap the map between layouts, and a view that is
+/// torn down and rebuilt would otherwise forget its zoom, follow mode and style.
+final class MapState: ObservableObject {
+    @Published var position: MapCameraPosition = .automatic
+    @Published var follow = true
+    @Published var satellite = false
+    // Camera height when following. Backed off from max zoom so a little
+    // surrounding road/context stays visible. Adjusted by the +/- controls.
+    var zoomDistance: CLLocationDistance = 800
+    var currentCenter = CLLocationCoordinate2D(latitude: 0, longitude: 0)
+    var lastCameraUpdate: Date = .distantPast
+}
 
 struct MapPanel: View {
     let packet: GnimuPacket?
-
-    @State private var position: MapCameraPosition = .automatic
-    @State private var follow = true
-    @State private var lastCameraUpdate: Date = .distantPast
-
-    // Camera height when following. Backed off from max zoom so a little
-    // surrounding road/context stays visible. Adjusted by the +/- controls.
-    @State private var zoomDistance: CLLocationDistance = 800
-    @State private var currentCenter = CLLocationCoordinate2D(latitude: 0, longitude: 0)
-    @State private var satellite = false
+    @ObservedObject var state: MapState
 
     private let minDistance: CLLocationDistance = 80
     private let maxDistance: CLLocationDistance = 20000
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            Map(position: $position) {
+            Map(position: $state.position) {
                 if let packet, packet.hasValidFix {
                     Annotation("", coordinate: packet.coordinate, anchor: .center) {
                         PositionMarker(heading: packet.headingOfMotion)
@@ -43,32 +49,32 @@ struct MapPanel: View {
                 }
             }
             .onChange(of: packet?.iTOW) { _, _ in
-                guard follow, let packet, packet.hasValidFix else { return }
+                guard state.follow, let packet, packet.hasValidFix else { return }
                 let now = Date()
-                guard now.timeIntervalSince(lastCameraUpdate) >= 0.2 else { return }
-                lastCameraUpdate = now
-                position = .camera(cameraFor(packet.coordinate))
+                guard now.timeIntervalSince(state.lastCameraUpdate) >= 0.2 else { return }
+                state.lastCameraUpdate = now
+                state.position = .camera(cameraFor(packet.coordinate))
             }
             .onMapCameraChange { context in
-                currentCenter = context.camera.centerCoordinate
+                state.currentCenter = context.camera.centerCoordinate
             }
-            .mapStyle(satellite ? .hybrid : .standard)
+            .mapStyle(state.satellite ? .hybrid : .standard)
 
             VStack(spacing: 8) {
-                mapControl(systemName: satellite ? "map" : "globe.americas.fill") {
-                    satellite.toggle()
+                mapControl(systemName: state.satellite ? "map" : "globe.americas.fill") {
+                    state.satellite.toggle()
                 }
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                .help(satellite ? "Show standard map" : "Show satellite imagery")
+                .help(state.satellite ? "Show standard map" : "Show satellite imagery")
 
-                mapControl(systemName: follow ? "location.fill" : "location") {
-                    follow.toggle()
-                    if follow, let packet, packet.hasValidFix {
-                        position = .camera(cameraFor(packet.coordinate))
+                mapControl(systemName: state.follow ? "location.fill" : "location") {
+                    state.follow.toggle()
+                    if state.follow, let packet, packet.hasValidFix {
+                        state.position = .camera(cameraFor(packet.coordinate))
                     }
                 }
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                .help(follow ? "Following — click to unlock map" : "Click to follow device")
+                .help(state.follow ? "Following — click to unlock map" : "Click to follow device")
 
                 VStack(spacing: 0) {
                     mapControl(systemName: "plus") { zoom(by: 0.5) }
@@ -79,17 +85,17 @@ struct MapPanel: View {
             }
             .padding(10)
         }
-        .onTapGesture { follow = false }
+        .onTapGesture { state.follow = false }
     }
 
     private func cameraFor(_ center: CLLocationCoordinate2D) -> MapCamera {
-        MapCamera(centerCoordinate: center, distance: zoomDistance, heading: 0, pitch: 0)
+        MapCamera(centerCoordinate: center, distance: state.zoomDistance, heading: 0, pitch: 0)
     }
 
     private func zoom(by factor: Double) {
-        zoomDistance = min(max(zoomDistance * factor, minDistance), maxDistance)
-        let center = (follow ? packet?.coordinate : nil) ?? currentCenter
-        position = .camera(cameraFor(center))
+        state.zoomDistance = min(max(state.zoomDistance * factor, minDistance), maxDistance)
+        let center = (state.follow ? packet?.coordinate : nil) ?? state.currentCenter
+        state.position = .camera(cameraFor(center))
     }
 
     @ViewBuilder

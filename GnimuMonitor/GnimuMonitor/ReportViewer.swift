@@ -74,36 +74,40 @@ struct ReportViewer: View {
     }
 
     private var barContent: some View {
-        HStack(spacing: 12) {
-            #if os(iOS)
-            Button("Done") { dismiss() }
-                .buttonStyle(.bordered)
-            #endif
-
-            Spacer()
-
+        ZStack {
+            // Centred on the bar. The leading edge stays empty: an iPad window
+            // draws its controls there, and Done used to sit underneath them.
             Text(selection.title)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .padding(.horizontal, 190)
 
-            Spacer()
+            HStack(spacing: 12) {
+                Spacer()
 
-            // The page has its own Print button, but a native one is here too:
-            // it's the discoverable place, and it works before the page loads.
-            Button { proxy.printReport() } label: {
-                Image(systemName: "printer")
+                // The page has its own Print button, but a native one is here too:
+                // it's the discoverable place, and it works before the page loads.
+                Button { proxy.printReport() } label: {
+                    Image(systemName: "printer")
+                }
+                .buttonStyle(.bordered)
+                .disabled(readyURL == nil)
+                .help("Print or save as PDF")
+
+                // Sharing belongs here as well as in the list: you often decide to
+                // send a report only once you've looked at it.
+                ShareLink(item: selection.url) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .buttonStyle(.bordered)
+
+                #if os(iOS)
+                // Last, at the trailing edge, where a sheet's dismiss button goes.
+                Button("Done") { dismiss() }
+                    .buttonStyle(.borderedProminent)
+                #endif
             }
-            .buttonStyle(.bordered)
-            .disabled(readyURL == nil)
-            .help("Print or save as PDF")
-
-            // Sharing belongs here as well as in the list: you often decide to
-            // send a report only once you've looked at it.
-            ShareLink(item: selection.url) {
-                Image(systemName: "square.and.arrow.up")
-            }
-            .buttonStyle(.bordered)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

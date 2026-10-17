@@ -113,6 +113,11 @@ class BLEManager: NSObject, ObservableObject {
     /// The device's configuration text, parsed. Nil until the read returns.
     @Published var deviceConfig: DeviceConfig?
 
+    /// Why the connection just ended, when the app caused it on purpose. The
+    /// picker shows it so a restart or shutdown doesn't look like a crash.
+    @Published var deviceNotice: DeviceNotice?
+    private var noticeTimer: Timer?
+
     /// Fix-rate health derived from iTOW deltas — actual GNSS fix generation,
     /// unaffected by BLE transport jitter.
     @Published var fixRate: FixRateReading = .empty
@@ -165,6 +170,7 @@ class BLEManager: NSObject, ObservableObject {
     }
 
     func connect(to device: DiscoveredDevice) {
+        dismissNotice()
         stopScanning()
         deviceProtocol = device.deviceProtocol
         decoder = deviceProtocol.makeDecoder()
@@ -189,7 +195,26 @@ class BLEManager: NSObject, ObservableObject {
     /// never replies, and a restart or shutdown simply drops the connection.
     func send(_ command: DeviceCommand) {
         guard let p = connectedPeripheral, let char = commandCharacteristic else { return }
+        if command.dropsConnection {
+            setNotice(DeviceNotice(command: command, deviceName: selectedDeviceName))
+        }
         p.writeValue(command.frame, for: char, type: .withoutResponse)
+    }
+
+    func dismissNotice() {
+        noticeTimer?.invalidate()
+        noticeTimer = nil
+        deviceNotice = nil
+    }
+
+    /// Shows a notice, and takes it down again after a while: a restarted
+    /// device is back within seconds, and a message that lingers is worse than none.
+    private func setNotice(_ notice: DeviceNotice) {
+        dismissNotice()
+        deviceNotice = notice
+        noticeTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: false) { [weak self] _ in
+            self?.dismissNotice()
+        }
     }
 
     private func clearDeviceControl() {
@@ -281,7 +306,11 @@ class BLEManager: NSObject, ObservableObject {
         if let packet = newestPacket {
             let now = Date()
             if now.timeIntervalSince(lastUIUpdate) >= uiUpdateInterval {
+                #if DEBUG
+                latestPacket = DemoLaunch.relocated(packet)   // -fakeLocation, for screenshots
+                #else
                 latestPacket = packet
+                #endif
                 lastUIUpdate = now
             }
         }

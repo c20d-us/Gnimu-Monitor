@@ -19,7 +19,11 @@ import SwiftUI
 /// Root view: shows the compact device picker until a device is connected,
 /// then swaps to the full monitor layout. Disconnecting returns to the picker.
 struct ContentView: View {
+    #if DEBUG
+    @StateObject private var ble = DemoLaunch.makeBLE()
+    #else
     @StateObject private var ble = BLEManager()
+    #endif
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -31,6 +35,9 @@ struct ContentView: View {
             }
         }
         .sizesWindow(connected: ble.isConnected)
+        #if DEBUG
+        .modifier(DemoSize())
+        #endif
         // Blank the macOS window title (no "Gnimu Monitor" in the title bar).
         .navigationTitle("")
         .onChange(of: scenePhase) { _, phase in
@@ -45,6 +52,19 @@ struct ContentView: View {
         }
     }
 }
+
+#if DEBUG
+/// Pins the root view to the `-demoSize` launch argument, when given.
+private struct DemoSize: ViewModifier {
+    func body(content: Content) -> some View {
+        if let size = DemoLaunch.size {
+            content.frame(width: size.width, height: size.height)
+        } else {
+            content
+        }
+    }
+}
+#endif
 
 #Preview {
     ContentView()
