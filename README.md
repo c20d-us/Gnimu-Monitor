@@ -22,10 +22,11 @@ A macOS/iOS app for monitoring real-time output from a [Gnimu](https://github.co
 
 Gnimu Monitor opens on a device picker. It lists nearby devices that stream the RaceBox data protocol, each labelled with its protocol and a signal-strength indicator. Pick one and connect. A **Devices / Captures** switch at the top of the picker also gives access to the saved captures and their analysis reports (see [Capture and analysis](#capture-and-analysis)).
 
-Once connected, the screen is laid out for the size of the display.
+Once connected, the screen is laid out for the space it has, and re-arranges as a window is resized or an iPad is rotated. Which panel you're on, and the map's zoom and style, carry across the change.
 
-- **Mac and iPad (wide layouts):** a live map on the left. On the right, a glance box above a switchable panel, with buttons below to choose between **Data**, **Fix Rate**, **Level** and **Capture**, plus **Device** when the connected device supports it.
-- **iPhone (and iPad in Split View):** the glance box stays at the top, above a row of swipeable pages: **Map**, **Data**, **Fix Rate**, **G-Force**, **Level** and **Capture**, plus **Device** when the connected device supports it. The G-Force meter exists only in this layout.
+- **Wide (Mac, iPad landscape):** a live map on the left. On the right, a glance box above a switchable panel, with buttons below to choose between **Data**, **Fix Rate**, **Level** and **Capture**, plus **Device** when the connected device supports it.
+- **Stacked (iPad portrait, or a window too narrow for two columns):** the map across the top, then the glance box, the switchable panel and the same buttons below.
+- **Deck (iPhone, and small iPad windows):** the glance box stays at the top, above a row of swipeable pages: **Map**, **Data**, **Fix Rate**, **G-Force**, **Level** and **Capture**, plus **Device** when the connected device supports it. The G-Force meter exists only in this layout.
 
 Disconnecting returns to the picker. On iPhone and iPad the screen stays awake while connected, and the connection is dropped when the app goes to the background.
 
@@ -102,31 +103,39 @@ Builds go to `build/`, which is not tracked.
 
 ## iPhone Screenshots
 
-| Device Picker | Live Map | Data Panel | G-Force Meter |
-| :---: | :---: | :---: | :---: |
-| <img src="screenshots/iPhone-device-picker.png" width="185"> | <img src="screenshots/iPhone-map-panel.png" width="185"> | <img src="screenshots/iPhone-data-panel.png" width="185"> | <img src="screenshots/iPhone-gmeter-panel.png" width="185"> |
+| Device Picker | Capture List | Live Map |
+| :---: | :---: | :---: |
+| <img src="screenshots/iPhone-device-picker.png" width="185"> | <img src="screenshots/iPhone-capture-list.png" width="185"> | <img src="screenshots/iPhone-map-panel.png" width="185"> |
 
-| Fix Rate Tracker | Level | Capture | Capture List |
-| :---: | :---: | :---: | :---: |
-| <img src="screenshots/iPhone-fix-rate-tracker-panel.png" width="185"> | <img src="screenshots/iPhone-level-panel.png" width="185"> | <img src="screenshots/iPhone-capture-panel.png" width="185"> | <img src="screenshots/iPhone-capture-list.png" width="185"> |
+| Data Panel | Fix Rate Tracker | G-Force Meter |
+| :---: | :---: | :---: |
+| <img src="screenshots/iPhone-data-panel.png" width="185"> | <img src="screenshots/iPhone-fix-rate-tracker-panel.png" width="185"> | <img src="screenshots/iPhone-gmeter-panel.png" width="185"> |
+
+| Level | Capture | Device |
+| :---: | :---: | :---: |
+| <img src="screenshots/iPhone-level-panel.png" width="185"> | <img src="screenshots/iPhone-capture-panel.png" width="185"> | <img src="screenshots/iPhone-device-panel.png" width="185"> |
 
 ## iPad Screenshots
 
-| Device Picker | Live Map & Data Panel |
+| Device Picker | Capture List |
 | :---: | :---: |
-| <img src="screenshots/iPad-device-picker.png" width="391"> | <img src="screenshots/iPad-data-panel.png" width="391"> |
+| <img src="screenshots/iPad-device-picker.png" width="391"> | <img src="screenshots/iPad-capture-list.png" width="391"> |
 
-| Fix Rate Tracker | Level |
+| Live Map & Data Panel | Fix Rate Tracker |
 | :---: | :---: |
-| <img src="screenshots/iPad-fix-rate-tracker-panel.png" width="391"> | <img src="screenshots/iPad-level-panel.png" width="391"> |
+| <img src="screenshots/iPad-data-panel.png" width="391"> | <img src="screenshots/iPad-fix-rate-tracker-panel.png" width="391"> |
 
-| Capture | Capture Complete |
+| Level | Capture |
 | :---: | :---: |
-| <img src="screenshots/iPad-capture-panel.png" width="391"> | <img src="screenshots/iPad-capture-complete-panel.png" width="391"> |
+| <img src="screenshots/iPad-level-panel.png" width="391"> | <img src="screenshots/iPad-capture-panel.png" width="391"> |
 
-| Capture List |
+| Capture in Progress | Capture Complete |
+| :---: | :---: |
+| <img src="screenshots/iPad-capture-progress-panel.png" width="391"> | <img src="screenshots/iPad-capture-complete-panel.png" width="391"> |
+
+| Device |
 | :---: |
-| <img src="screenshots/iPad-capture-list.png" width="391"> |
+| <img src="screenshots/iPad-device-panel.png" width="391"> |
 
 ## Mac Screenshots
 
@@ -145,3 +154,7 @@ Builds go to `build/`, which is not tracked.
 | Capture in Progress | Capture Complete |
 | :---: | :---: |
 | <img src="screenshots/macOS-capture-progress-panel.png" width="391"> | <img src="screenshots/macOS-capture-complete-panel.png" width="391"> |
+
+| Device |
+| :---: |
+| <img src="screenshots/macOS-device-panel.png" width="391"> |

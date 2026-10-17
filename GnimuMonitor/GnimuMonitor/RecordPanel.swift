@@ -34,6 +34,14 @@ struct RecordPanel: View {
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
+        ScrollIfNeeded(alignment: .center) { content }
+            .onReceive(ticker) { tick = $0 }
+            // The capture may have been deleted from Files since it was recorded;
+            // don't keep offering to share something that's gone.
+            .onAppear { recorder.forgetCaptureIfMissing() }
+    }
+
+    private var content: some View {
         VStack(spacing: 24) {
             Spacer(minLength: 0)
 
@@ -63,11 +71,6 @@ struct RecordPanel: View {
             Spacer(minLength: 0)
         }
         .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onReceive(ticker) { tick = $0 }
-        // The capture may have been deleted from Files since it was recorded;
-        // don't keep offering to share something that's gone.
-        .onAppear { recorder.forgetCaptureIfMissing() }
     }
 
     // MARK: - Pieces

@@ -20,36 +20,77 @@ import CoreBluetooth
 import UIKit
 #endif
 
-/// The connected screen. On regular-width displays (Mac, iPad landscape) it's a
-/// map alongside the glance box and telemetry; on compact widths (iPhone, iPad
-/// Split View) it's a pinned glance box over a swipeable Map/Data deck.
-/// The switchable panel shown in the lower half of the split (Mac/iPad) layout.
-enum RightPanelTab: String, CaseIterable, Identifiable {
-    case data, fixRate, level, capture, device
+/// A panel the connected screen can show. The tab strip in the wide and
+/// stacked layouts offers `stripTabs`; the swipeable deck pages through
+/// `deckPages`, which adds the map and the g-force meter.
+enum MonitorPanel: String, Identifiable {
+    case map, data, fixRate, gForce, level, capture, device
     var id: String { rawValue }
+
     var label: String {
         switch self {
+        case .map:     return "Map"
         case .data:    return "Data"
         case .fixRate: return "Fix Rate"
+        case .gForce:  return "G-Force"
         case .level:   return "Level"
         case .capture: return "Capture"
         case .device:  return "Device"
         }
     }
+
+    /// Panels the tab strip offers. The Device panel exists only for devices
+    /// that offer configuration and commands.
+    static func stripTabs(hasDevice: Bool) -> [MonitorPanel] {
+        [.data, .fixRate, .level, .capture] + (hasDevice ? [.device] : [])
+    }
+
+    /// Pages of the swipeable deck, in order.
+    static func deckPages(hasDevice: Bool) -> [MonitorPanel] {
+        [.map, .data, .fixRate, .gForce, .level, .capture] + (hasDevice ? [.device] : [])
+    }
+}
+
+/// How the connected screen is arranged for the space it has. Chosen from the
+/// actual size (not the device or size class) so a resizable iPad window, a
+/// rotated iPad and an iPhone all land on a sensible layout.
+enum MonitorLayout {
+    /// Map on the left, glance box and panel on the right.
+    case wide
+    /// Map on top, glance box and panel below.
+    case stacked
+    /// Pinned glance box over a swipeable deck of pages.
+    case deck
+
+    // What each arrangement needs, in points. The wide layout's right column
+    // takes at least `rightColumnMin`, and the map keeps at least `mapMinWidth`.
+    static let rightColumnMin: CGFloat = 460
+    static let mapMinWidth: CGFloat = 360
+    static let wideMinWidth = rightColumnMin + mapMinWidth
+    static let stackedMinHeight: CGFloat = 700
+    static let deckAbove: CGFloat = 560
+
+    static func choose(for size: CGSize) -> MonitorLayout {
+        #if os(macOS)
+        return .wide   // the window has a minimum size that always fits it
+        #else
+        if size.width < deckAbove || size.height < 480 { return .deck }
+        if size.width >= wideMinWidth && size.width >= size.height { return .wide }
+        if size.height >= stackedMinHeight { return .stacked }
+        return .deck
+        #endif
+    }
 }
 
 struct MonitorView: View {
     @ObservedObject var ble: BLEManager
-    /// Reset to Data on every launch (per-session state, not @AppStorage).
-    @State private var rightTab: RightPanelTab = .data
-
-    /// The Device tab exists only for devices that offer configuration and commands.
-    private var availableTabs: [RightPanelTab] {
-        RightPanelTab.allCases.filter { $0 != .device || ble.supportsDeviceControl }
-    }
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var hSize
-    #endif
+    /// The panel the user is on. One value shared by every layout, so resizing
+    /// across a layout boundary keeps their place. Reset to Data on every
+    /// launch (per-session state, not @AppStorage).
+    @State private var selected: MonitorPanel = .data
+    /// The map's zoom, follow mode and style, held here so they survive a
+    /// layout change that rebuilds the map view.
+    @StateObject private var mapState = MapState()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -60,7 +101,16 @@ struct MonitorView: View {
 
             Divider()
 
-            content
+            GeometryReader { geo in
+                switch MonitorLayout.choose(for: geo.size) {
+                case .wide:    wideLayout(width: geo.size.width)
+                case .stacked: stackedLayout(height: geo.size.height)
+                case .deck:    deckLayout
+                }
+            }
+            #if os(macOS)
+            .frame(minWidth: MonitorLayout.wideMinWidth, minHeight: 520)
+            #endif
         }
         // Keep the screen awake while the live monitor is on-screen. This view
         // only exists while connected, and iOS only honors it in the foreground.
@@ -74,18 +124,63 @@ struct MonitorView: View {
         #endif
     }
 
-    /// One button in the bottom tab strip: bordered-prominent when selected,
-    /// plain bordered otherwise, all equal-width via `maxWidth: .infinity`.
+    // MARK: - Shared pieces
+
+    private var stripTabs: [MonitorPanel] {
+        MonitorPanel.stripTabs(hasDevice: ble.supportsDeviceControl)
+    }
+
+    /// The panel the tab strip shows. The map and g-force pages exist only in
+    /// the deck, so a selection of either reads as Data when the strip is on
+    /// screen, without losing the deck's selection.
+    private var stripSelection: MonitorPanel {
+        stripTabs.contains(selected) ? selected : .data
+    }
+
+    private var glanceBox: some View {
+        GlanceBox(packet: ble.latestPacket, fixRate: ble.fixRate)
+            .padding(12)
+    }
+
+    private var mapPanel: some View {
+        MapPanel(packet: ble.latestPacket, state: mapState)
+    }
+
     @ViewBuilder
-    private func tabButton(_ tab: RightPanelTab) -> some View {
-        let selected = rightTab == tab
-        if selected {
-            Button { rightTab = tab } label: {
+    private var panelContent: some View {
+        switch stripSelection {
+        case .fixRate: FixRatePanel(ble: ble)
+        case .level:   LevelPanel(packet: ble.latestPacket)
+        case .capture: RecordPanel(ble: ble, recorder: ble.recorder,
+                                   analysis: ble.analysisRunner)
+        case .device:  DevicePanel(ble: ble, recorder: ble.recorder)
+        default:       DataPanel(packet: ble.latestPacket)
+        }
+    }
+
+    /// The row of panel buttons under the panel.
+    private var tabStrip: some View {
+        HStack(spacing: 10) {
+            ForEach(stripTabs) { tabButton($0) }
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
+        .background(.bar)
+    }
+
+    /// One button in the tab strip: bordered-prominent when selected, plain
+    /// bordered otherwise, all equal-width via `maxWidth: .infinity`.
+    @ViewBuilder
+    private func tabButton(_ tab: MonitorPanel) -> some View {
+        let isSelected = stripSelection == tab
+        if isSelected {
+            Button { selected = tab } label: {
                 Text(tab.label).lineLimit(1).minimumScaleFactor(0.8).frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
         } else {
-            Button { rightTab = tab } label: {
+            Button { selected = tab } label: {
                 Text(tab.label).lineLimit(1).minimumScaleFactor(0.8).frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
@@ -97,95 +192,102 @@ struct MonitorView: View {
         }
     }
 
-    @ViewBuilder
-    private var content: some View {
-        #if os(iOS)
-        if hSize == .compact {
-            CompactMonitor(ble: ble)
-        } else {
-            splitLayout
-        }
-        #else
-        splitLayout
-        #endif
-    }
+    // MARK: - Layouts
 
     /// Map on the left, glance box + switchable panel + tab strip on the right.
     /// The right column takes about 45% of the width, between 460 and 600 pt:
     /// enough for five tab buttons and the Device panel's rows, while the map
-    /// keeps the rest. Sizing it from the available width (not a fixed 480)
-    /// keeps the layout inside a portrait iPad or a narrow Mac window.
-    private var splitLayout: some View {
-        GeometryReader { geo in
-            let rightWidth = min(600, max(460, geo.size.width * 0.45))
-            HStack(spacing: 0) {
-                MapPanel(packet: ble.latestPacket)
-                    .frame(maxWidth: .infinity)
+    /// keeps the rest.
+    private func wideLayout(width: CGFloat) -> some View {
+        let rightWidth = min(600, max(MonitorLayout.rightColumnMin, width * 0.45))
+        return HStack(spacing: 0) {
+            mapPanel
+                .frame(maxWidth: .infinity)
+
+            Divider()
+
+            VStack(spacing: 0) {
+                glanceBox
 
                 Divider()
 
-                VStack(spacing: 0) {
-                    GlanceBox(packet: ble.latestPacket, fixRate: ble.fixRate)
-                        .padding(12)
+                // Scrolling content stays above the tab strip.
+                panelContent.clipped()
 
-                    Divider()
+                Divider()
 
-                    Group {
-                        switch rightTab {
-                        case .data:    DataPanel(packet: ble.latestPacket)
-                        case .fixRate: FixRatePanel(ble: ble)
-                        case .level:   LevelPanel(packet: ble.latestPacket)
-                        case .capture: RecordPanel(ble: ble, recorder: ble.recorder,
-                                                   analysis: ble.analysisRunner)
-                        case .device:  DevicePanel(ble: ble, recorder: ble.recorder)
-                        }
-                    }
-                    // Scrolling content stays above the tab strip.
-                    .clipped()
-
-                    Divider()
-
-                    HStack(spacing: 10) {
-                        ForEach(availableTabs) { tab in
-                            tabButton(tab)
-                        }
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.top, 8)
-                    .padding(.bottom, 10)
-                    .background(.bar)
-                }
-                .frame(width: rightWidth)
-                // The column runs down into the iPad's home-indicator inset, so
-                // the strip (and the divider above it) sit at the screen bottom
-                // instead of leaving a band under it.
-                .ignoresSafeArea(.container, edges: .bottom)
+                tabStrip
             }
+            .frame(width: rightWidth)
         }
-        .frame(minWidth: 760, minHeight: 520)
+        // The columns run down into the iPad's home-indicator inset, so the
+        // strip (and the divider above it) sit at the screen bottom instead of
+        // leaving a band under it.
+        .ignoresSafeArea(.container, edges: .bottom)
+    }
+
+    /// Map across the top, then glance box, panel and tab strip: for a portrait
+    /// iPad, or a window too narrow for two columns but tall enough to stack.
+    private func stackedLayout(height: CGFloat) -> some View {
+        // The map is a glance at where the device is, so it stays modest and
+        // the panel below gets the rest of the height.
+        let mapHeight = min(340, max(180, height * 0.30))
+        return VStack(spacing: 0) {
+            mapPanel
+                .frame(maxWidth: .infinity)
+                .frame(height: mapHeight)
+
+            Divider()
+
+            glanceBox
+
+            Divider()
+
+            panelContent
+                .frame(maxHeight: .infinity)
+                .clipped()
+
+            Divider()
+
+            tabStrip
+        }
+        .ignoresSafeArea(.container, edges: .bottom)
+    }
+
+    /// Pinned glance box over a swipeable deck, for phones and small windows.
+    @ViewBuilder
+    private var deckLayout: some View {
+        #if os(iOS)
+        CompactMonitor(ble: ble, mapState: mapState, selected: $selected)
+        #else
+        wideLayout(width: MonitorLayout.wideMinWidth)
+        #endif
     }
 }
 
 #if os(iOS)
-/// Compact layout: a pinned glance box above a paged
+/// Deck layout: a pinned glance box above a paged
 /// Map / Data / Fix Rate / G-Force / Level / Capture (/ Device) deck.
 private struct CompactMonitor: View {
     @ObservedObject var ble: BLEManager
+    @ObservedObject var mapState: MapState
+    @Binding var selected: MonitorPanel
 
     var body: some View {
         VStack(spacing: 0) {
             GlanceBox(packet: ble.latestPacket, fixRate: ble.fixRate)
                 .padding(12)
 
-            TabView {
-                MapPage(packet: ble.latestPacket)
-                DataPanel(packet: ble.latestPacket)
-                TitledPage("Fix Rate") { FixRatePanel(ble: ble) }
-                TitledPage("G-Force") { GForcePanel(packet: ble.latestPacket) }
-                TitledPage("Level") { LevelPanel(packet: ble.latestPacket) }
+            TabView(selection: $selected) {
+                MapPage(packet: ble.latestPacket, mapState: mapState).tag(MonitorPanel.map)
+                DataPanel(packet: ble.latestPacket).tag(MonitorPanel.data)
+                TitledPage("Fix Rate") { FixRatePanel(ble: ble) }.tag(MonitorPanel.fixRate)
+                TitledPage("G-Force") { GForcePanel(packet: ble.latestPacket) }.tag(MonitorPanel.gForce)
+                TitledPage("Level") { LevelPanel(packet: ble.latestPacket) }.tag(MonitorPanel.level)
                 TitledPage("Capture") { RecordPanel(ble: ble, recorder: ble.recorder, analysis: ble.analysisRunner) }
+                    .tag(MonitorPanel.capture)
                 if ble.supportsDeviceControl {
-                    DevicePanel(ble: ble, recorder: ble.recorder)
+                    DevicePanel(ble: ble, recorder: ble.recorder).tag(MonitorPanel.device)
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .always))
@@ -218,7 +320,7 @@ private struct TitledPage<Content: View>: View {
     }
 }
 
-/// Full-page g-force meter — a compact-only panel (not shown on Mac/iPad).
+/// Full-page g-force meter — a deck-only panel (not shown in the wide or stacked layouts).
 private struct GForcePanel: View {
     let packet: GnimuPacket?
 
@@ -286,10 +388,11 @@ private struct GForceMeter: View {
 /// instead of being eaten by the map's own pan gesture.
 private struct MapPage: View {
     let packet: GnimuPacket?
+    @ObservedObject var mapState: MapState
 
     var body: some View {
         VStack(spacing: 0) {
-            MapPanel(packet: packet)
+            MapPanel(packet: packet, state: mapState)
 
             // Empty strip that stays part of the TabView, giving the page dots
             // room and a place to swipe without the map eating the gesture.
@@ -307,16 +410,24 @@ private struct MonitorBar: View {
     @ObservedObject var ble: BLEManager
 
     var body: some View {
-        HStack(spacing: 12) {
+        ZStack {
+            // Centred, clear of the window controls an iPad window draws at the
+            // leading edge, and of the Disconnect button at the trailing edge.
             if let name = ble.selectedDeviceName ?? ble.selectedPeripheral?.name {
-                Text(name).font(.title3.weight(.semibold))
+                Text(name)
+                    .font(.title3.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .padding(.horizontal, 120)
             }
 
-            Spacer()
+            HStack {
+                Spacer()
 
-            Button("Disconnect") { ble.disconnect() }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
+                Button("Disconnect") { ble.disconnect() }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+            }
         }
     }
 }

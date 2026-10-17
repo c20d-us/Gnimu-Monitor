@@ -47,6 +47,9 @@ struct DevicePickerView: View {
 
             switch mode {
             case .devices:
+                if let notice = ble.deviceNotice {
+                    noticeBanner(notice)
+                }
                 deviceList
                 Divider()
                 footer
@@ -54,7 +57,9 @@ struct DevicePickerView: View {
                 AnalysisPanel(runner: ble.analysisRunner)
             }
         }
+        #if os(macOS)
         .frame(minWidth: 400, idealWidth: 700, minHeight: 600, idealHeight: 1200)
+        #endif
         .onAppear { ble.startScanning() }
         .onChange(of: scenePhase) { _, phase in
             // Returning to the foreground: restart the scan for a fresh list.
@@ -111,6 +116,29 @@ struct DevicePickerView: View {
         }
     }
     #endif
+
+    // MARK: Notice
+
+    /// Says why the device just disappeared, when the app sent it away.
+    private func noticeBanner(_ notice: DeviceNotice) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: notice.systemImage)
+                .foregroundStyle(.tint)
+            Text(notice.message)
+                .font(.callout)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button { ble.dismissNotice() } label: {
+                Image(systemName: "xmark")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(12)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
 
     // MARK: Device list
 

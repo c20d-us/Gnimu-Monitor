@@ -30,6 +30,10 @@ struct FixRatePanel: View {
     }
 
     var body: some View {
+        ScrollIfNeeded(alignment: .top) { content }
+    }
+
+    private var content: some View {
         VStack(spacing: 16) {
             VStack(spacing: 2) {
                 Text(String(format: "%.1f", ble.fixRate.hz))
@@ -65,7 +69,6 @@ struct FixRatePanel: View {
             .padding(.top, 48)
         }
         .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     /// How the cadence compares with what the device should be holding, and
