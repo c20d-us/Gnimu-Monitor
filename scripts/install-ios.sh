@@ -66,7 +66,11 @@ FAILED=0
 # tab-separated, read from a here-doc so the loop stays in this shell
 while IFS="$(printf '\t')" read -r ID NAME; do
   echo "Installing build $BUILD_NUMBER on ${NAME}..."
-  if ! xcrun devicectl device install app --device "$ID" "$BUILT" >/dev/null; then
+  # The first connection after the devices have been idle often gets reset;
+  # a second attempt normally succeeds, so try once more before giving up.
+  if ! xcrun devicectl device install app --device "$ID" "$BUILT" >/dev/null &&
+     { echo "  connection failed, retrying..." >&2; sleep 2
+       ! xcrun devicectl device install app --device "$ID" "$BUILT" >/dev/null; }; then
     echo "  failed on $NAME (is it unlocked and connected?)" >&2
     FAILED=1
   fi

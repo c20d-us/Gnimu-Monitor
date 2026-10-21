@@ -85,9 +85,11 @@ enum MonitorLayout {
 struct MonitorView: View {
     @ObservedObject var ble: BLEManager
     /// The panel the user is on. One value shared by every layout, so resizing
-    /// across a layout boundary keeps their place. Reset to Data on every
-    /// launch (per-session state, not @AppStorage).
-    @State private var selected: MonitorPanel = .data
+    /// across a layout boundary keeps their place. Reset to Map on every
+    /// launch (per-session state, not @AppStorage): the deck opens on its
+    /// first page, and the strip layouts, which show the map permanently,
+    /// read it as Data (see `stripSelection`).
+    @State private var selected: MonitorPanel = .map
     /// The map's zoom, follow mode and style, held here so they survive a
     /// layout change that rebuilds the map view.
     @StateObject private var mapState = MapState()
