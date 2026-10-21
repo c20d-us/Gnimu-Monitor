@@ -20,3 +20,6 @@ Index.noindex/
 
 # CocoaPods (if used)
 Pods/
+
+# Claude
+.claude/
