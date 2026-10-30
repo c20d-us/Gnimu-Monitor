@@ -90,16 +90,25 @@ nonisolated struct DeviceConfig: Equatable {
     var settings: [Entry] = []
 
     init?(text: String) {
+        var clock: Entry?
         for rawLine in text.split(whereSeparator: \.isNewline) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("BUILD,") {
                 build = Self.parseBuild(String(line.dropFirst("BUILD,".count)))
             } else if line.hasPrefix("Device ID:") {
                 deviceID = line.dropFirst("Device ID:".count).trimmingCharacters(in: .whitespaces)
+            } else if line.hasPrefix("GNSS clock:") {
+                let value = line.dropFirst("GNSS clock:".count).trimmingCharacters(in: .whitespaces)
+                clock = Entry(label: "GNSS CPU Clock", value: value)
             } else if line.hasPrefix("Config:") {
                 let body = line.dropFirst("Config:".count).trimmingCharacters(in: .whitespaces)
                 settings.append(contentsOf: Self.parseSetting(body))
             }
+        }
+        // The firmware prints the clock before the Config lines; the panel shows it with the GNSS rows.
+        if let clock {
+            let at = settings.lastIndex { $0.label.hasPrefix("GNSS") }.map { $0 + 1 } ?? settings.count
+            settings.insert(clock, at: at)
         }
         if build.isEmpty && deviceID == nil && settings.isEmpty { return nil }
     }

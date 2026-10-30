@@ -101,6 +101,7 @@ extension BLEManager {
         ble.deviceConfig = DeviceConfig(text: """
             BUILD,version=2.0.0,revision=48c22c7e04c5,dirty=0,utc=2026-10-14T21:04:57Z,target=nrf52840
             Device ID: 1120954722
+            GNSS clock: 192 MHz
             Config: board nrf52840, wiring V2
             Config: GNSS GPS+Galileo, 20 Hz, automotive, min elevation 5°
             Config: IMU axes X=+x Y=+y Z=+z, smoothing accel 0.33 gyro 0.33
