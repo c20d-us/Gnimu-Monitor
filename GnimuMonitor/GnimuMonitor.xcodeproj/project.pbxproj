@@ -6,8 +6,19 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+		83CD468130A0D6DB005CE809 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 832C89142FD6543C007AE902 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 832C891B2FD6543C007AE902;
+			remoteInfo = GnimuMonitor;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		832C891C2FD6543C007AE902 /* Gnimu Monitor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Gnimu Monitor.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		83CD467D30A0D6DB005CE809 /* Gnimu MonitorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Gnimu MonitorTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -29,10 +40,22 @@
 			path = GnimuMonitor;
 			sourceTree = "<group>";
 		};
+		83CD467E30A0D6DB005CE809 /* Gnimu MonitorTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Gnimu MonitorTests";
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		832C89192FD6543C007AE902 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		83CD467A30A0D6DB005CE809 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -46,6 +69,7 @@
 			isa = PBXGroup;
 			children = (
 				832C891E2FD6543C007AE902 /* GnimuMonitor */,
+				83CD467E30A0D6DB005CE809 /* Gnimu MonitorTests */,
 				832C891D2FD6543C007AE902 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -54,6 +78,7 @@
 			isa = PBXGroup;
 			children = (
 				832C891C2FD6543C007AE902 /* Gnimu Monitor.app */,
+				83CD467D30A0D6DB005CE809 /* Gnimu MonitorTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -84,6 +109,29 @@
 			productReference = 832C891C2FD6543C007AE902 /* Gnimu Monitor.app */;
 			productType = "com.apple.product-type.application";
 		};
+		83CD467C30A0D6DB005CE809 /* Gnimu MonitorTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 83CD468530A0D6DB005CE809 /* Build configuration list for PBXNativeTarget "Gnimu MonitorTests" */;
+			buildPhases = (
+				83CD467930A0D6DB005CE809 /* Sources */,
+				83CD467A30A0D6DB005CE809 /* Frameworks */,
+				83CD467B30A0D6DB005CE809 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				83CD468230A0D6DB005CE809 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				83CD467E30A0D6DB005CE809 /* Gnimu MonitorTests */,
+			);
+			name = "Gnimu MonitorTests";
+			packageProductDependencies = (
+			);
+			productName = "Gnimu MonitorTests";
+			productReference = 83CD467D30A0D6DB005CE809 /* Gnimu MonitorTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -91,11 +139,15 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2650;
+				LastSwiftUpdateCheck = 2720;
 				LastUpgradeCheck = 2720;
 				TargetAttributes = {
 					832C891B2FD6543C007AE902 = {
 						CreatedOnToolsVersion = 26.5;
+					};
+					83CD467C30A0D6DB005CE809 = {
+						CreatedOnToolsVersion = 27.2;
+						TestTargetID = 832C891B2FD6543C007AE902;
 					};
 				};
 			};
@@ -114,12 +166,20 @@
 			projectRoot = "";
 			targets = (
 				832C891B2FD6543C007AE902 /* GnimuMonitor */,
+				83CD467C30A0D6DB005CE809 /* Gnimu MonitorTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		832C891A2FD6543C007AE902 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		83CD467B30A0D6DB005CE809 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -159,7 +219,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		83CD467930A0D6DB005CE809 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		83CD468230A0D6DB005CE809 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 832C891B2FD6543C007AE902 /* GnimuMonitor */;
+			targetProxy = 83CD468130A0D6DB005CE809 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		832C89252FD6543D007AE902 /* Debug */ = {
@@ -412,6 +487,57 @@
 			};
 			name = Release;
 		};
+		83CD468330A0D6DB005CE809 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4225V477H9;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "us.c20d.Gnimu-MonitorTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Gnimu Monitor.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Gnimu Monitor";
+			};
+			name = Debug;
+		};
+		83CD468430A0D6DB005CE809 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4225V477H9;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "us.c20d.Gnimu-MonitorTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Gnimu Monitor.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Gnimu Monitor";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -429,6 +555,15 @@
 			buildConfigurations = (
 				832C89282FD6543D007AE902 /* Debug */,
 				832C89292FD6543D007AE902 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		83CD468530A0D6DB005CE809 /* Build configuration list for PBXNativeTarget "Gnimu MonitorTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				83CD468330A0D6DB005CE809 /* Debug */,
+				83CD468430A0D6DB005CE809 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
