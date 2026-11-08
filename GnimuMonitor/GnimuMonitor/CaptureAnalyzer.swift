@@ -124,7 +124,7 @@ nonisolated enum CaptureAnalyzer {
 
         // Sequence
         var packets = 0
-        var previous: GnimuPacket?
+        var previous: RaceBoxPacket?
         var previousT: Double?
         var firstT: Double?
         var lastT: Double?
@@ -140,7 +140,7 @@ nonisolated enum CaptureAnalyzer {
             let deltaMs: Double
             let arrivalGapMs: Double
             let previousITOW: UInt32
-            let packet: GnimuPacket
+            let packet: RaceBoxPacket
         }
         var pending: [PendingInterval] = []
         /// A standard period other than the nominal, and how many intervals in
@@ -218,7 +218,7 @@ nonisolated enum CaptureAnalyzer {
 
         // MARK: Ingest
 
-        mutating func ingest(t: Double, packet: GnimuPacket) {
+        mutating func ingest(t: Double, packet: RaceBoxPacket) {
             packets += 1
             if firstT == nil {
                 firstT = t
@@ -241,7 +241,7 @@ nonisolated enum CaptureAnalyzer {
 
         // MARK: Quality
 
-        private mutating func ingestQuality(t: Double, packet: GnimuPacket) {
+        private mutating func ingestQuality(t: Double, packet: RaceBoxPacket) {
             numSV.add(Double(packet.numSV))
             pDOP.add(packet.pDOP)
             hAcc.add(packet.hAcc)
@@ -267,7 +267,7 @@ nonisolated enum CaptureAnalyzer {
 
         // MARK: Transport
 
-        private mutating func ingestTransport(t: Double, packet: GnimuPacket) {
+        private mutating func ingestTransport(t: Double, packet: RaceBoxPacket) {
             guard let prevT = previousT else {
                 lastBurstStart = t
                 burstSize = 1
@@ -304,7 +304,7 @@ nonisolated enum CaptureAnalyzer {
 
         // MARK: Cadence
 
-        private mutating func ingestCadence(t: Double, packet: GnimuPacket) {
+        private mutating func ingestCadence(t: Double, packet: RaceBoxPacket) {
             guard let previous, let prevT = previousT else { return }
             let deltaMs = Double(packet.iTOW) - Double(previous.iTOW)
 
@@ -402,7 +402,7 @@ nonisolated enum CaptureAnalyzer {
         /// a transport stall moves only the host's.
         private mutating func noteGap(t: Double, deviceGapMs: Double, arrivalGapMs: Double,
                                       missed: Int, interruption: Bool,
-                                      packet: GnimuPacket, nominal: Double) {
+                                      packet: RaceBoxPacket, nominal: Double) {
             let tolerance = max(nominal * 0.5, 20)
             let attribution: GapAttribution
             if deviceGapMs > nominal + tolerance && arrivalGapMs < nominal + tolerance {
@@ -450,7 +450,7 @@ nonisolated enum CaptureAnalyzer {
 
         // MARK: Consistency
 
-        private mutating func ingestConsistency(t: Double, packet: GnimuPacket) {
+        private mutating func ingestConsistency(t: Double, packet: RaceBoxPacket) {
             if let previous {
                 let delta = Double(packet.iTOW) - Double(previous.iTOW)
                 if delta < 0 {
@@ -559,7 +559,7 @@ nonisolated enum CaptureAnalyzer {
 
         // MARK: Track
 
-        private mutating func ingestTrack(t: Double, packet: GnimuPacket) {
+        private mutating func ingestTrack(t: Double, packet: RaceBoxPacket) {
             guard packet.hasValidFix else { return }
             trackCounter += 1
             guard trackCounter % trackStride == 0 else { return }

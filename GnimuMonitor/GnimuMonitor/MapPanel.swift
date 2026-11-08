@@ -33,8 +33,15 @@ final class MapState: ObservableObject {
 }
 
 struct MapPanel: View {
-    let packet: GnimuPacket?
+    let telemetry: TelemetryState?
     @ObservedObject var state: MapState
+
+    private var gnss: GnssBlock? { telemetry?.gnss }
+    /// Where the device is, only while it reports a usable fix.
+    private var fixCoordinate: CLLocationCoordinate2D? {
+        guard let gnss, gnss.hasFix else { return nil }
+        return gnss.coordinate
+    }
 
     private let minDistance: CLLocationDistance = 80
     private let maxDistance: CLLocationDistance = 20000
@@ -42,18 +49,18 @@ struct MapPanel: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Map(position: $state.position) {
-                if let packet, packet.hasValidFix {
-                    Annotation("", coordinate: packet.coordinate, anchor: .center) {
-                        PositionMarker(heading: packet.headingOfMotion)
+                if let coordinate = fixCoordinate {
+                    Annotation("", coordinate: coordinate, anchor: .center) {
+                        PositionMarker(heading: gnss?.headingDeg ?? 0)
                     }
                 }
             }
-            .onChange(of: packet?.iTOW) { _, _ in
-                guard state.follow, let packet, packet.hasValidFix else { return }
+            .onChange(of: telemetry?.revision) { _, _ in
+                guard state.follow, let coordinate = fixCoordinate else { return }
                 let now = Date()
                 guard now.timeIntervalSince(state.lastCameraUpdate) >= 0.2 else { return }
                 state.lastCameraUpdate = now
-                state.position = .camera(cameraFor(packet.coordinate))
+                state.position = .camera(cameraFor(coordinate))
             }
             .onMapCameraChange { context in
                 state.currentCenter = context.camera.centerCoordinate
@@ -69,8 +76,8 @@ struct MapPanel: View {
 
                 mapControl(systemName: state.follow ? "location.fill" : "location") {
                     state.follow.toggle()
-                    if state.follow, let packet, packet.hasValidFix {
-                        state.position = .camera(cameraFor(packet.coordinate))
+                    if state.follow, let coordinate = fixCoordinate {
+                        state.position = .camera(cameraFor(coordinate))
                     }
                 }
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
@@ -94,7 +101,7 @@ struct MapPanel: View {
 
     private func zoom(by factor: Double) {
         state.zoomDistance = min(max(state.zoomDistance * factor, minDistance), maxDistance)
-        let center = (state.follow ? packet?.coordinate : nil) ?? state.currentCenter
+        let center = (state.follow ? gnss?.coordinate : nil) ?? state.currentCenter
         state.position = .camera(cameraFor(center))
     }
 

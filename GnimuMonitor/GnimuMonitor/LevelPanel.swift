@@ -20,7 +20,7 @@ import SwiftUI
 /// gravity components as the tilt signal; ±15° full-scale sensitivity keeps
 /// the bubble responsive during typical vehicle-mount adjustments.
 struct LevelPanel: View {
-    let packet: GnimuPacket?
+    let telemetry: TelemetryState?
 
     /// Exponential moving average of the tilt vector, in g. Held in @State
     /// so successive packets smoothly damp jitter while stationary.
@@ -91,12 +91,13 @@ struct LevelPanel: View {
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onChange(of: packet?.iTOW) { _, _ in
-            guard let p = packet else { return }
+        .onChange(of: telemetry?.revision) { _, _ in
+            guard let imu = telemetry?.imu,
+                  let x = imu.longitudinalG, let y = imu.lateralG else { return }
             // EMA smoothing (~0.3 s time constant at 10 Hz UI updates).
             let alpha = 0.35
-            smoothedX = smoothedX * (1 - alpha) + p.accelX * alpha
-            smoothedY = smoothedY * (1 - alpha) + p.accelY * alpha
+            smoothedX = smoothedX * (1 - alpha) + x * alpha
+            smoothedY = smoothedY * (1 - alpha) + y * alpha
         }
     }
 

@@ -79,6 +79,10 @@ class BLEManager: NSObject, ObservableObject {
     private var pruneTimer: Timer?
     private var connectTimer: Timer?
     private var rateTimer: Timer?
+    #if DEBUG
+    /// The debug replay in progress, if any. See `startReplay`.
+    private var replayTask: Task<Void, Never>?
+    #endif
 
     /// Derives fix-rate health from the iTOW timestamps of every parsed packet
     /// (not just those that pass the UI throttle).
@@ -103,7 +107,11 @@ class BLEManager: NSObject, ObservableObject {
     @Published var isConnected = false
     @Published var isConnecting = false
     @Published var isScanning = false
-    @Published var latestPacket: GnimuPacket?
+    /// What the connected device has reported, merged across notifications and
+    /// published at the UI throttle. Nil until the first frame arrives.
+    @Published var telemetry: TelemetryState?
+    /// The same state, kept current on every frame between UI updates.
+    private var liveState = TelemetryState()
     @Published var centralStateDescription = "Initializing…"
 
     /// True once the connected device is found to offer the configuration
@@ -187,6 +195,9 @@ class BLEManager: NSObject, ObservableObject {
     }
 
     func disconnect() {
+        #if DEBUG
+        if replayTask != nil { stopReplay(); return }
+        #endif
         guard let p = connectedPeripheral else { return }
         central.cancelPeripheralConnection(p)
     }
@@ -278,7 +289,7 @@ class BLEManager: NSObject, ObservableObject {
         let reading = rateTracker.evaluate()
         fixRate = reading
 
-        rateHistory.append(FixRateSample(sv: Int(latestPacket?.numSV ?? 0),
+        rateHistory.append(FixRateSample(sv: telemetry?.gnss?.satellites ?? 0,
                                          hz: reading.hz,
                                          missed: reading.missedFixes))
         if rateHistory.count > rateHistoryCapacity {
@@ -295,24 +306,23 @@ class BLEManager: NSObject, ObservableObject {
     }
 
     private func ingest(_ notification: Data) {
-        var newestPacket: GnimuPacket?
+        let now = Date()
+        var received = false
         for frame in decoder.feed(notification) {
-            // Record every packet for rate tracking and capture (not just
+            // Record every frame for rate tracking and capture (not just
             // those that survive the UI throttle below).
-            recordPacketArrival(itow: frame.packet.iTOW)
+            if let epoch = frame.gnssEpochMs { recordPacketArrival(itow: epoch) }
             recorder.record(frame: frame.raw)
-            newestPacket = frame.packet
+            liveState.apply(frame.update, at: now)
+            received = true
         }
-        if let packet = newestPacket {
-            let now = Date()
-            if now.timeIntervalSince(lastUIUpdate) >= uiUpdateInterval {
-                #if DEBUG
-                latestPacket = DemoLaunch.relocated(packet)   // -fakeLocation, for screenshots
-                #else
-                latestPacket = packet
-                #endif
-                lastUIUpdate = now
-            }
+        if received, now.timeIntervalSince(lastUIUpdate) >= uiUpdateInterval {
+            #if DEBUG
+            telemetry = DemoLaunch.relocated(liveState)   // -fakeLocation, for screenshots
+            #else
+            telemetry = liveState
+            #endif
+            lastUIUpdate = now
         }
     }
 }
@@ -408,7 +418,8 @@ extension BLEManager: CBCentralManagerDelegate {
         connectedPeripheral = nil
         selectedPeripheral = nil
         selectedDeviceName = nil
-        latestPacket = nil
+        telemetry = nil
+        liveState = TelemetryState()
         decoder.reset()
         clearDeviceControl()
     }
@@ -459,3 +470,53 @@ extension BLEManager: CBPeripheralDelegate {
         }
     }
 }
+
+
+#if DEBUG
+// MARK: - Replay (debug builds only)
+
+extension BLEManager {
+    /// Plays `capture` back through the live path, as if a device of its
+    /// protocol were connected and sending at the recorded times. Each frame
+    /// goes through `ingest` like a real notification, so the decoder, the
+    /// state merge and the throttle are all exercised. Ends at the last frame,
+    /// leaving the final state on screen, or loops.
+    func startReplay(_ capture: ReplayCapture, speed: Double = 1, loop: Bool = false) {
+        stopReplay()
+        deviceProtocol = capture.deviceProtocol
+        decoder = capture.deviceProtocol.makeDecoder()
+        liveState = TelemetryState()
+        telemetry = nil
+        selectedDeviceName = capture.deviceName.map { "\($0) (replay)" } ?? "Replay"
+        isConnecting = false
+        isConnected = true
+        startRateTimer()
+
+        let pace = max(speed, 0.01)
+        replayTask = Task { [weak self] in
+            repeat {
+                let clock = ContinuousClock()
+                let start = clock.now
+                for frame in capture.frames {
+                    let due = start + .seconds(frame.t / pace)
+                    if due > clock.now { try? await Task.sleep(until: due, clock: clock) }
+                    guard let self, !Task.isCancelled else { return }
+                    self.ingest(frame.data)
+                }
+            } while loop && !Task.isCancelled
+        }
+    }
+
+    func stopReplay() {
+        guard replayTask != nil else { return }
+        replayTask?.cancel()
+        replayTask = nil
+        stopRateTimer()
+        telemetry = nil
+        liveState = TelemetryState()
+        decoder.reset()
+        selectedDeviceName = nil
+        isConnected = false
+    }
+}
+#endif

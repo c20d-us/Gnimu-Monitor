@@ -31,6 +31,9 @@ import SwiftUI
 ///                           -fakeLat and -fakeLon) to choose the spot.
 ///   -demoSize 744x1133  also pin the screen to that size, in points, to see
 ///                       how a layout looks without resizing a window
+///   -replay /path/to/capture.jsonl   play a capture back as if a device were
+///                       connected (-replaySpeed 4 for faster, -replayLoop to
+///                       repeat); see ReplayCapture
 enum DemoLaunch {
     static var isDemo: Bool { CommandLine.arguments.contains("-demoMonitor") }
 
@@ -64,11 +67,15 @@ enum DemoLaunch {
                 value(after: "-fakeLon") ?? defaultLongitude)
     }
 
-    /// The packet with its latitude and longitude swapped for the made-up
+    /// The state with its latitude and longitude swapped for the made-up
     /// position, when one is requested. Everything else stays live.
-    static func relocated(_ p: GnimuPacket) -> GnimuPacket {
-        guard let fake = fakeLocation else { return p }
-        return p.moved(toLatitude: fake.latitude, longitude: fake.longitude)
+    static func relocated(_ state: TelemetryState) -> TelemetryState {
+        guard let fake = fakeLocation, var gnss = state.gnss else { return state }
+        gnss.latitude = fake.latitude
+        gnss.longitude = fake.longitude
+        var moved = state
+        moved.gnss = gnss
+        return moved
     }
 
     /// The size requested with `-demoSize WxH`, if any.
@@ -79,7 +86,32 @@ enum DemoLaunch {
         return parts.count == 2 ? CGSize(width: parts[0], height: parts[1]) : nil
     }
 
+    /// The capture to replay, from `-replay <path>`.
+    static var replayURL: URL? {
+        let args = CommandLine.arguments
+        guard let i = args.firstIndex(of: "-replay"), i + 1 < args.count else { return nil }
+        return URL(fileURLWithPath: (args[i + 1] as NSString).expandingTildeInPath)
+    }
+
+    static var replaySpeed: Double {
+        let args = CommandLine.arguments
+        guard let i = args.firstIndex(of: "-replaySpeed"), i + 1 < args.count,
+              let speed = Double(args[i + 1]), speed > 0 else { return 1 }
+        return speed
+    }
+
+    static var replayLoops: Bool { CommandLine.arguments.contains("-replayLoop") }
+
     static func makeBLE() -> BLEManager {
+        if let url = replayURL {
+            let ble = BLEManager()
+            do {
+                ble.startReplay(try ReplayCapture.load(url: url), speed: replaySpeed, loop: replayLoops)
+            } catch {
+                print("Replay: \(error.localizedDescription)")
+            }
+            return ble
+        }
         if CommandLine.arguments.contains("-demoNotice") {
             // The picker as it looks just after a restart command.
             let ble = BLEManager()
@@ -96,7 +128,7 @@ extension BLEManager {
     static func demo() -> BLEManager {
         let ble = BLEManager()
         ble.selectedDeviceName = "Gnimu-RB 1120954722"
-        ble.latestPacket = .demo
+        ble.telemetry = .demo
         ble.supportsDeviceControl = true
         ble.deviceConfig = DeviceConfig(text: """
             BUILD,version=2.0.0,revision=48c22c7e04c5,dirty=0,utc=2026-10-14T21:04:57Z,target=nrf52840
@@ -113,23 +145,18 @@ extension BLEManager {
     }
 }
 
-extension GnimuPacket {
-    /// A copy at another latitude and longitude, all other fields unchanged.
-    func moved(toLatitude lat: Double, longitude lon: Double) -> GnimuPacket {
-        GnimuPacket(
-            iTOW: iTOW, year: year, month: month, day: day, hour: hour, minute: minute,
-            second: second, validityFlags: validityFlags, timeAccuracy: timeAccuracy,
-            nanoseconds: nanoseconds, fixType: fixType, fixStatusFlags: fixStatusFlags,
-            dateTimeFlags: dateTimeFlags, numSV: numSV, longitude: lon, latitude: lat,
-            heightEllipsoid: heightEllipsoid, heightMSL: heightMSL, hAcc: hAcc, vAcc: vAcc,
-            groundSpeed: groundSpeed, headingOfMotion: headingOfMotion,
-            speedAccuracy: speedAccuracy, headingAccuracy: headingAccuracy, pDOP: pDOP,
-            latLonFlags: latLonFlags, battery: battery, accelX: accelX, accelY: accelY,
-            accelZ: accelZ, gyroX: gyroX, gyroY: gyroY, gyroZ: gyroZ)
-    }
+extension TelemetryState {
+    /// The sample packet as live state.
+    static let demo: TelemetryState = {
+        var state = TelemetryState()
+        state.apply(RaceBoxPacket.demo.telemetryUpdate, at: Date())
+        return state
+    }()
+}
 
+extension RaceBoxPacket {
     /// A stationary 3D fix with sixteen satellites.
-    static let demo = GnimuPacket(
+    static let demo = RaceBoxPacket(
         iTOW: 1_000_000, year: 2026, month: 10, day: 16, hour: 9, minute: 30, second: 0,
         validityFlags: 0x03, timeAccuracy: 25, nanoseconds: 0,
         fixType: 3, fixStatusFlags: 0x01, dateTimeFlags: 0, numSV: 16,

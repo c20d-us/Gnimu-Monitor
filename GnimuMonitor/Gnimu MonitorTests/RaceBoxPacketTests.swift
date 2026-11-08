@@ -2,7 +2,7 @@
 //  RaceBoxPacketTests.swift
 //  Gnimu MonitorTests
 //
-//  Pins what GnimuPacket.parse accepts and what it makes of each field, so the
+//  Pins what RaceBoxPacket.parse accepts and what it makes of each field, so the
 //  protocol-neutral refactor can't quietly change RaceBox decoding.
 //
 
@@ -46,7 +46,7 @@ struct RaceBoxPacketTests {
         b.accelXG = 0.123; b.accelYG = -0.456; b.accelZG = 0.987
         b.gyroXDps = 1.25; b.gyroYDps = -2.5; b.gyroZDps = 3.75
 
-        let p = try #require(GnimuPacket.parse(from: b.build()))
+        let p = try #require(RaceBoxPacket.parse(from: b.build()))
 
         #expect(p.iTOW == 123_456_789)
         #expect(p.year == 2026)
@@ -87,7 +87,7 @@ struct RaceBoxPacketTests {
         var b = RaceBoxPacketBuilder()
         b.latitude = -33.8688
         b.longitude = -151.2093
-        let p = try #require(GnimuPacket.parse(from: b.build()))
+        let p = try #require(RaceBoxPacket.parse(from: b.build()))
         #expect(near(p.latitude, -33.8688, 1e-7))
         #expect(near(p.longitude, -151.2093, 1e-7))
     }
@@ -97,7 +97,7 @@ struct RaceBoxPacketTests {
         b.heightMSLM = -12.345
         b.accelXG = -1.5
         b.gyroZDps = -300.25
-        let p = try #require(GnimuPacket.parse(from: b.build()))
+        let p = try #require(RaceBoxPacket.parse(from: b.build()))
         #expect(near(p.heightMSL, -12.345))
         #expect(near(p.accelX, -1.5))
         #expect(near(p.gyroZ, -300.25))
@@ -111,13 +111,13 @@ struct RaceBoxPacketTests {
         let data = length <= good.count
             ? good.prefix(length)
             : good + Data(repeating: 0, count: length - good.count)
-        #expect(GnimuPacket.parse(from: Data(data)) == nil)
+        #expect(RaceBoxPacket.parse(from: Data(data)) == nil)
     }
 
     @Test(arguments: [0, 1])
     func rejectsBadSyncByte(index: Int) {
         let bad = RaceBoxPacketBuilder().build().replacing(byteAt: index, with: 0x00)
-        #expect(GnimuPacket.parse(from: bad) == nil)
+        #expect(RaceBoxPacket.parse(from: bad) == nil)
     }
 
     @Test(arguments: [2, 3])
@@ -129,21 +129,21 @@ struct RaceBoxPacketTests {
         let (a, b) = RaceBoxPacketBuilder.checksum(of: bytes)
         bytes[86] = a
         bytes[87] = b
-        #expect(GnimuPacket.parse(from: Data(bytes)) == nil)
+        #expect(RaceBoxPacket.parse(from: Data(bytes)) == nil)
     }
 
     @Test(arguments: [6, 30, 60, 85])
     func rejectsCorruptedPayload(index: Int) {
         let good = RaceBoxPacketBuilder().build()
         let bad = good.replacing(byteAt: index, with: good[index] ^ 0x01)
-        #expect(GnimuPacket.parse(from: bad) == nil)
+        #expect(RaceBoxPacket.parse(from: bad) == nil)
     }
 
     @Test(arguments: [86, 87])
     func rejectsCorruptedChecksum(index: Int) {
         let good = RaceBoxPacketBuilder().build()
         let bad = good.replacing(byteAt: index, with: good[index] ^ 0xFF)
-        #expect(GnimuPacket.parse(from: bad) == nil)
+        #expect(RaceBoxPacket.parse(from: bad) == nil)
     }
 
     // MARK: - Battery byte
@@ -152,12 +152,12 @@ struct RaceBoxPacketTests {
         var b = RaceBoxPacketBuilder()
 
         b.battery = 55
-        var p = try #require(GnimuPacket.parse(from: b.build()))
+        var p = try #require(RaceBoxPacket.parse(from: b.build()))
         #expect(p.batteryPercent == 55)
         #expect(!p.isCharging)
 
         b.battery = 0x80 | 55
-        p = try #require(GnimuPacket.parse(from: b.build()))
+        p = try #require(RaceBoxPacket.parse(from: b.build()))
         #expect(p.batteryPercent == 55)
         #expect(p.isCharging)
     }
@@ -165,18 +165,18 @@ struct RaceBoxPacketTests {
     @Test func batteryPercentClampsToOneHundred() throws {
         var b = RaceBoxPacketBuilder()
         b.battery = 0x7F   // 127 in the low seven bits
-        let p = try #require(GnimuPacket.parse(from: b.build()))
+        let p = try #require(RaceBoxPacket.parse(from: b.build()))
         #expect(p.batteryPercent == 100)
     }
 
     // MARK: - Derived values
 
     @Test func validFixNeedsFixTypeAndClearLatLonFlag() throws {
-        func packet(fixType: UInt8, latLonFlags: UInt8) throws -> GnimuPacket {
+        func packet(fixType: UInt8, latLonFlags: UInt8) throws -> RaceBoxPacket {
             var b = RaceBoxPacketBuilder()
             b.fixType = fixType
             b.latLonFlags = latLonFlags
-            return try #require(GnimuPacket.parse(from: b.build()))
+            return try #require(RaceBoxPacket.parse(from: b.build()))
         }
         #expect(try packet(fixType: 3, latLonFlags: 0).hasValidFix)
         #expect(try packet(fixType: 2, latLonFlags: 0).hasValidFix)
@@ -192,14 +192,14 @@ struct RaceBoxPacketTests {
     func fixTypeStrings(fixType: UInt8, expected: String) throws {
         var b = RaceBoxPacketBuilder()
         b.fixType = fixType
-        let p = try #require(GnimuPacket.parse(from: b.build()))
+        let p = try #require(RaceBoxPacket.parse(from: b.build()))
         #expect(p.fixTypeString == expected)
     }
 
     @Test func speedConvertsMetresPerSecondToKmh() throws {
         var b = RaceBoxPacketBuilder()
         b.groundSpeedMps = 10
-        let p = try #require(GnimuPacket.parse(from: b.build()))
+        let p = try #require(RaceBoxPacket.parse(from: b.build()))
         #expect(near(p.speedKmh, 36.0))
     }
 
@@ -208,7 +208,7 @@ struct RaceBoxPacketTests {
             var b = RaceBoxPacketBuilder()
             b.groundSpeedMps = speed
             b.speedAccMps = accuracy
-            return try #require(GnimuPacket.parse(from: b.build())).movingSpeedKmh
+            return try #require(RaceBoxPacket.parse(from: b.build())).movingSpeedKmh
         }
         // Below the 0.25 m/s floor: zero.
         #expect(try moving(speed: 0.2, accuracy: 0.05) == 0)
@@ -227,7 +227,7 @@ struct RaceBoxPacketTests {
     func headingCardinals(heading: Double, expected: String) throws {
         var b = RaceBoxPacketBuilder()
         b.headingDeg = heading
-        let p = try #require(GnimuPacket.parse(from: b.build()))
+        let p = try #require(RaceBoxPacket.parse(from: b.build()))
         #expect(p.headingCardinal == expected)
     }
 }

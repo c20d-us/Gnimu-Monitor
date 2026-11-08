@@ -184,21 +184,7 @@ struct FaultyCaptureAnalysisTests {
     private let analysis: CaptureAnalysis
 
     init() throws {
-        var capture = SyntheticCapture()
-        capture.faults = [
-            .init(at: 6, kind: .missedFixBoth),
-            .init(at: 8, kind: .corruptLine),
-            .init(at: 9, kind: .garbageLine),
-            .init(at: 12, kind: .missedFixDevice),
-            .init(at: 15, kind: .batteryRise),
-            .init(at: 18, kind: .missedFixTransport),
-            .init(at: 20, kind: .clockMismatch),
-            .init(at: 24, kind: .lateFix),
-            .init(at: 30, kind: .duplicateITOW),
-            .init(at: 36, kind: .interruption),
-        ]
-        capture.includeTrailer = false
-        analysis = try analyze(capture)
+        analysis = try analyze(SyntheticCapture.faulty)
     }
 
     @Test func summaryCountsEachFaultOnce() {

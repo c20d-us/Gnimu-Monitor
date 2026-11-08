@@ -88,7 +88,7 @@ nonisolated enum CaptureReader {
     nonisolated static func read(
         url: URL,
         onHeader: (CaptureHeader) -> Void,
-        onFrame: (Double, GnimuPacket) -> Void,
+        onFrame: (Double, RaceBoxPacket) -> Void,
         onUndecodable: () -> Void,
         onTrailer: (CaptureTrailer) -> Void,
         onProgress: (Double) -> Void = { _ in },
@@ -174,7 +174,7 @@ nonisolated enum CaptureReader {
 
     private enum Line {
         case header(CaptureHeader)
-        case frame(Double, GnimuPacket)
+        case frame(Double, RaceBoxPacket)
         case trailer(CaptureTrailer)
         case undecodable
         case blank
@@ -201,7 +201,7 @@ nonisolated enum CaptureReader {
             guard let t = dict["t"] as? Double,
                   let encoded = dict["d"] as? String,
                   let bytes = Data(base64Encoded: encoded),
-                  let packet = GnimuPacket.parse(from: bytes) else {
+                  let packet = RaceBoxPacket.parse(from: bytes) else {
                 return .undecodable
             }
             return .frame(t, packet)

@@ -82,7 +82,10 @@ nonisolated enum DeviceProtocol: String, CaseIterable {
 /// (what a capture records) and what they decode to.
 nonisolated struct DecodedFrame {
     let raw: Data
-    let packet: GnimuPacket
+    let update: TelemetryUpdate
+    /// The receiver's own stamp for the epoch this frame carries, in ms, for
+    /// protocols that have one (RaceBox's iTOW). The fix-rate tracker reads it.
+    let gnssEpochMs: UInt32?
 }
 
 /// Turns the notification stream into frames. Notifications don't line up
@@ -112,8 +115,9 @@ nonisolated struct RaceBoxFrameDecoder: FrameDecoder {
             if syncOffset > 0 { buffer.removeFirst(syncOffset) }
             guard buffer.count >= Self.frameBytes else { break }
             let candidate = Data(buffer[0..<Self.frameBytes])
-            if let packet = GnimuPacket.parse(from: candidate) {
-                frames.append(DecodedFrame(raw: candidate, packet: packet))
+            if let packet = RaceBoxPacket.parse(from: candidate) {
+                frames.append(DecodedFrame(raw: candidate, update: packet.telemetryUpdate,
+                                           gnssEpochMs: packet.iTOW))
                 buffer.removeFirst(Self.frameBytes)
             } else {
                 buffer.removeFirst(1)

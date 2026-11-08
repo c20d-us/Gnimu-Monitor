@@ -34,7 +34,7 @@ enum SpeedUnit: String, CaseIterable {
 
 /// Pure decoded telemetry with pure accessors — explicitly nonisolated so the
 /// offline analyzer can decode captures on a background queue.
-nonisolated struct GnimuPacket {
+nonisolated struct RaceBoxPacket {
     let iTOW: UInt32
     let year: UInt16
     let month: UInt8
@@ -119,7 +119,7 @@ nonisolated struct GnimuPacket {
     }
 
     // Full packet is 88 bytes: 2 sync + 2 class/id + 2 length + 80 payload + 2 checksum
-    static func parse(from data: Data) -> GnimuPacket? {
+    static func parse(from data: Data) -> RaceBoxPacket? {
         guard data.count == 88 else { return nil }
         let b = [UInt8](data)
         guard b[0] == 0xB5, b[1] == 0x62 else { return nil }
@@ -147,7 +147,7 @@ nonisolated struct GnimuPacket {
         func i32(_ o: Int) -> Int32 { Int32(bitPattern: u32(o)) }
         func i16(_ o: Int) -> Int16 { Int16(bitPattern: u16(o)) }
 
-        return GnimuPacket(
+        return RaceBoxPacket(
             iTOW: u32(0),
             year: u16(4),
             month: u8(6),

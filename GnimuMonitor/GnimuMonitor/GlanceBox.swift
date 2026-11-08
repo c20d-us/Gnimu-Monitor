@@ -19,16 +19,19 @@ import SwiftUI
 /// The shared "instrument" box used across iPhone, iPad, and Mac: speed and
 /// satellite count alongside GNSS status (fix type, pDOP, battery).
 struct GlanceBox: View {
-    let packet: GnimuPacket?
+    let telemetry: TelemetryState?
     /// Live iTOW fix rate and its health, shown small along the bottom edge.
     let fixRate: FixRateReading
     @AppStorage("speedUnit") private var speedUnit: SpeedUnit = .kmh
+
+    private var gnss: GnssBlock? { telemetry?.gnss }
+    private var power: PowerBlock? { telemetry?.power }
 
     var body: some View {
         ZStack {
             // Top-center: speed (tap to toggle units)
             VStack(spacing: 2) {
-                Text(String(format: "%.0f", speedUnit.value(fromKmh: packet?.movingSpeedKmh ?? 0)))
+                Text(String(format: "%.0f", speedUnit.value(fromKmh: gnss?.movingSpeedKmh ?? 0)))
                     .font(.system(size: 64, weight: .semibold, design: .rounded))
                     .contentTransition(.numericText())
                 Text(speedUnit.label)
@@ -46,8 +49,8 @@ struct GlanceBox: View {
             // (nudged down to line up with the Fix text, whose glyphs sit lower
             // than the icon's top edge)
             VStack(alignment: .center, spacing: 2) {
-                BatteryGauge(percent: packet?.batteryPercent, charging: packet?.isCharging ?? false)
-                Text(packet.map { "\($0.batteryPercent)%" } ?? "—")
+                BatteryGauge(percent: power?.batteryPercent, charging: power?.isCharging ?? false)
+                Text(power?.batteryPercent.map { "\($0)%" } ?? "—")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -56,7 +59,7 @@ struct GlanceBox: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
             // Top-right: fix type (color-coded), same size as the corner values
-            Text(packet?.fixTypeString ?? "—")
+            Text(gnss?.fixTypeString ?? "—")
                 .font(.system(size: 24, weight: .semibold, design: .rounded))
                 .foregroundStyle(fixColor)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
@@ -73,11 +76,11 @@ struct GlanceBox: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
 
             // Bottom-left: satellites
-            corner("\(packet?.numSV ?? 0)", "Satellites", color: satelliteColor)
+            corner("\(gnss?.satellites ?? 0)", "Satellites", color: satelliteColor)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
 
             // Bottom-right: pDOP
-            corner(packet.map { String(format: "%.1f", $0.pDOP) } ?? "—", "pDOP", color: pdopColor)
+            corner(gnss?.pdop.map { String(format: "%.1f", $0) } ?? "—", "pDOP", color: pdopColor)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
         }
         // Fixed height so the corner items (which fill vertically) spread to the
@@ -105,7 +108,7 @@ struct GlanceBox: View {
 
     /// Fix quality color: green = 3D/GNSS+DR, amber = 2D/dead reckoning, red = none.
     private var fixColor: Color {
-        guard let fix = packet?.fixType else { return .secondary }
+        guard let fix = gnss?.fixType else { return .secondary }
         switch fix {
         case 3, 4: return .green
         case 1, 2: return .orange
@@ -115,7 +118,7 @@ struct GlanceBox: View {
 
     /// Satellite-count color: red < 4, amber 4–8, green ≥ 9.
     private var satelliteColor: Color {
-        guard let n = packet?.numSV else { return .secondary }
+        guard let n = gnss?.satellites else { return .secondary }
         switch n {
         case ..<4: return .red
         case 4...8: return .orange
@@ -125,7 +128,7 @@ struct GlanceBox: View {
 
     /// pDOP color: red ≥ 3, amber ≥ 2, green < 2 (lower is better).
     private var pdopColor: Color {
-        guard let d = packet?.pDOP else { return .secondary }
+        guard let d = gnss?.pdop else { return .secondary }
         if d >= 3 { return .red }
         if d >= 2 { return .orange }
         return .green

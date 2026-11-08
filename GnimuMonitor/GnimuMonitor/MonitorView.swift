@@ -140,23 +140,23 @@ struct MonitorView: View {
     }
 
     private var glanceBox: some View {
-        GlanceBox(packet: ble.latestPacket, fixRate: ble.fixRate)
+        GlanceBox(telemetry: ble.telemetry, fixRate: ble.fixRate)
             .padding(12)
     }
 
     private var mapPanel: some View {
-        MapPanel(packet: ble.latestPacket, state: mapState)
+        MapPanel(telemetry: ble.telemetry, state: mapState)
     }
 
     @ViewBuilder
     private var panelContent: some View {
         switch stripSelection {
         case .fixRate: FixRatePanel(ble: ble)
-        case .level:   LevelPanel(packet: ble.latestPacket)
+        case .level:   LevelPanel(telemetry: ble.telemetry)
         case .capture: RecordPanel(ble: ble, recorder: ble.recorder,
                                    analysis: ble.analysisRunner)
         case .device:  DevicePanel(ble: ble, recorder: ble.recorder)
-        default:       DataPanel(packet: ble.latestPacket)
+        default:       DataPanel(telemetry: ble.telemetry)
         }
     }
 
@@ -277,15 +277,15 @@ private struct CompactMonitor: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            GlanceBox(packet: ble.latestPacket, fixRate: ble.fixRate)
+            GlanceBox(telemetry: ble.telemetry, fixRate: ble.fixRate)
                 .padding(12)
 
             TabView(selection: $selected) {
-                MapPage(packet: ble.latestPacket, mapState: mapState).tag(MonitorPanel.map)
-                DataPanel(packet: ble.latestPacket).tag(MonitorPanel.data)
+                MapPage(telemetry: ble.telemetry, mapState: mapState).tag(MonitorPanel.map)
+                DataPanel(telemetry: ble.telemetry).tag(MonitorPanel.data)
                 TitledPage("Fix Rate") { FixRatePanel(ble: ble) }.tag(MonitorPanel.fixRate)
-                TitledPage("G-Force") { GForcePanel(packet: ble.latestPacket) }.tag(MonitorPanel.gForce)
-                TitledPage("Level") { LevelPanel(packet: ble.latestPacket) }.tag(MonitorPanel.level)
+                TitledPage("G-Force") { GForcePanel(telemetry: ble.telemetry) }.tag(MonitorPanel.gForce)
+                TitledPage("Level") { LevelPanel(telemetry: ble.telemetry) }.tag(MonitorPanel.level)
                 TitledPage("Capture") { RecordPanel(ble: ble, recorder: ble.recorder, analysis: ble.analysisRunner) }
                     .tag(MonitorPanel.capture)
                 if ble.supportsDeviceControl {
@@ -324,17 +324,17 @@ private struct TitledPage<Content: View>: View {
 
 /// Full-page g-force meter — a deck-only panel (not shown in the wide or stacked layouts).
 private struct GForcePanel: View {
-    let packet: GnimuPacket?
+    let telemetry: TelemetryState?
 
     private var gMagnitude: Double {
-        let x = packet?.accelX ?? 0, y = packet?.accelY ?? 0
+        let x = telemetry?.imu?.longitudinalG ?? 0, y = telemetry?.imu?.lateralG ?? 0
         return (x * x + y * y).squareRoot()
     }
 
     var body: some View {
         VStack(spacing: 20) {
             // Matches the data-panel axis mapping (x: longitudinal, y: lateral).
-            GForceMeter(x: packet?.accelY ?? 0, y: packet?.accelX ?? 0)
+            GForceMeter(x: telemetry?.imu?.lateralG ?? 0, y: telemetry?.imu?.longitudinalG ?? 0)
                 .frame(width: 260, height: 260)
             Text(String(format: "%.2f g", gMagnitude))
                 .font(.title2.weight(.semibold))
@@ -389,12 +389,12 @@ private struct GForceMeter: View {
 /// below it stays part of the TabView so a horizontal swipe there flips pages
 /// instead of being eaten by the map's own pan gesture.
 private struct MapPage: View {
-    let packet: GnimuPacket?
+    let telemetry: TelemetryState?
     @ObservedObject var mapState: MapState
 
     var body: some View {
         VStack(spacing: 0) {
-            MapPanel(packet: packet, state: mapState)
+            MapPanel(telemetry: telemetry, state: mapState)
 
             // Empty strip that stays part of the TabView, giving the page dots
             // room and a place to swipe without the map eating the gesture.

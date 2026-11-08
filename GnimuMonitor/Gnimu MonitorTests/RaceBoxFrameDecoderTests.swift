@@ -19,7 +19,7 @@ private func frame(_ index: Int) -> Data {
 }
 
 private func iTOWs(_ frames: [DecodedFrame]) -> [UInt32] {
-    frames.map { $0.packet.iTOW }
+    frames.map { $0.gnssEpochMs ?? 0 }
 }
 
 struct RaceBoxFrameDecoderTests {
@@ -125,9 +125,23 @@ struct RaceBoxFrameDecoderTests {
         b.longitude = 2.3522
         var decoder = RaceBoxFrameDecoder()
         let out = decoder.feed(b.build())
-        let p = try #require(out.first?.packet)
-        #expect(p.iTOW == 555)
-        #expect(abs(p.latitude - 48.8566) < 1e-7)
-        #expect(abs(p.longitude - 2.3522) < 1e-7)
+        let frame = try #require(out.first)
+        #expect(frame.gnssEpochMs == 555)
+        let gnss = try #require(frame.update.gnss)
+        #expect(abs(try #require(gnss.latitude) - 48.8566) < 1e-7)
+        #expect(abs(try #require(gnss.longitude) - 2.3522) < 1e-7)
+        #expect(gnss.timeOfWeekMs == 555)
+    }
+
+    @Test func theUpdateIsExactlyWhatThePacketConvertsTo() throws {
+        var b = RaceBoxPacketBuilder()
+        b.iTOW = 777
+        b.groundSpeedMps = 12.5
+        b.battery = 0x80 | 64
+        let bytes = b.build()
+        var decoder = RaceBoxFrameDecoder()
+        let frame = try #require(decoder.feed(bytes).first)
+        let packet = try #require(RaceBoxPacket.parse(from: bytes))
+        #expect(frame.update == packet.telemetryUpdate)
     }
 }

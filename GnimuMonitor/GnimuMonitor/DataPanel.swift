@@ -17,52 +17,48 @@
 import SwiftUI
 
 struct DataPanel: View {
-    let packet: GnimuPacket?
+    let telemetry: TelemetryState?
     @AppStorage("speedUnit") private var speedUnit: SpeedUnit = .kmh
 
     var body: some View {
         ScrollView {
-            if let p = packet {
+            if let telemetry {
+                let g = telemetry.gnss
+                let imu = telemetry.imu
                 VStack(spacing: 12) {
                     section("Position") {
-                        row("Latitude", String(format: "%.7f °", p.latitude))
-                        row("Longitude", String(format: "%.7f °", p.longitude))
-                        row("Altitude Above Sea Level", String(format: "%.1f m", p.heightMSL))
-                        row("Horizontal Accuracy", String(format: "%.2f m", p.hAcc))
-                        row("Vertical Accuracy", String(format: "%.2f m", p.vAcc))
+                        row("Latitude", text(g?.latitude, "%.7f °"))
+                        row("Longitude", text(g?.longitude, "%.7f °"))
+                        row("Altitude Above Sea Level", text(g?.altitudeMSL, "%.1f m"))
+                        row("Horizontal Accuracy", text(g?.horizontalAccuracy, "%.2f m"))
+                        row("Vertical Accuracy", text(g?.verticalAccuracy, "%.2f m"))
                     }
 
                     section("Motion") {
                         row(
                             "Ground Speed",
-                            String(
-                                format: "%.1f %@", speedUnit.value(fromKmh: p.movingSpeedKmh),
-                                speedUnit.label))
+                            speed(g?.movingSpeedKmh, "%.1f %@"))
                         row(
                             "Speed Accuracy",
-                            String(
-                                format: "%.2f %@", speedUnit.value(fromKmh: p.speedAccuracy * 3.6),
-                                speedUnit.label))
-                        row(
-                            "Heading",
-                            String(format: "%@ %.2f °", p.headingCardinal, p.headingOfMotion))
-                        row("Heading Accuracy", String(format: "%.2f °", p.headingAccuracy))
+                            speed(g?.speedAccuracyKmh, "%.2f %@"))
+                        row("Heading", heading(g))
+                        row("Heading Accuracy", text(g?.headingAccuracyDeg, "%.2f °"))
                     }
 
                     section("IMU") {
-                        row("Lateral Acceleration", String(format: "%.3f g", p.accelY))
-                        row("Longitudinal Acceleration", String(format: "%.3f g", p.accelX))
-                        row("Vertical Acceleration", String(format: "%.3f g", p.accelZ))
-                        row("Roll Rate", String(format: "%.2f °/s", p.gyroX))
-                        row("Pitch Rate", String(format: "%.2f °/s", p.gyroY))
-                        row("Yaw Rate", String(format: "%.2f °/s", p.gyroZ))
+                        row("Lateral Acceleration", text(imu?.lateralG, "%.3f g"))
+                        row("Longitudinal Acceleration", text(imu?.longitudinalG, "%.3f g"))
+                        row("Vertical Acceleration", text(imu?.verticalG, "%.3f g"))
+                        row("Roll Rate", text(imu?.rollRate, "%.2f °/s"))
+                        row("Pitch Rate", text(imu?.pitchRate, "%.2f °/s"))
+                        row("Yaw Rate", text(imu?.yawRate, "%.2f °/s"))
                     }
 
                     section("Time") {
-                        row("UTC Date", utcDateString(p))
-                        row("UTC Time", utcTimeString(p))
-                        row("GNSS Time of Week", "\(p.iTOW) ms")
-                        row("Time Accuracy", "\(p.timeAccuracy) ns")
+                        row("UTC Date", g?.date?.text ?? "invalid")
+                        row("UTC Time", g?.time?.text ?? "invalid")
+                        row("GNSS Time of Week", g?.timeOfWeekMs.map { "\($0) ms" } ?? "—")
+                        row("Time Accuracy", g?.timeAccuracyNs.map { "\($0) ns" } ?? "—")
                     }
                 }
                 .padding(12)
@@ -99,18 +95,19 @@ struct DataPanel: View {
         .background(Color.gray.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
     }
 
-    private func utcDateString(_ p: GnimuPacket) -> String {
-        let validDate = (p.validityFlags & 0x01) != 0
-        return validDate
-            ? String(format: "%04d-%02d-%02d", p.year, p.month, p.day)
-            : "invalid"
+    /// A number in the given format, or a dash where the device has no value.
+    private func text(_ value: Double?, _ format: String) -> String {
+        value.map { String(format: format, $0) } ?? "—"
     }
 
-    private func utcTimeString(_ p: GnimuPacket) -> String {
-        let validTime = (p.validityFlags & 0x02) != 0
-        return validTime
-            ? String(format: "%02d:%02d:%02d", p.hour, p.minute, p.second)
-            : "invalid"
+    /// A speed in the chosen unit; `format` takes the number, then the unit label.
+    private func speed(_ kmh: Double?, _ format: String) -> String {
+        kmh.map { String(format: format, speedUnit.value(fromKmh: $0), speedUnit.label) } ?? "—"
+    }
+
+    private func heading(_ gnss: GnssBlock?) -> String {
+        guard let cardinal = gnss?.headingCardinal, let degrees = gnss?.headingDeg else { return "—" }
+        return String(format: "%@ %.2f °", cardinal, degrees)
     }
 
     private func row(_ label: String, _ value: String) -> some View {

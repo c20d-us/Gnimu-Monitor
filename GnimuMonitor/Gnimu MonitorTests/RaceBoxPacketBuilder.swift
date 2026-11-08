@@ -5,7 +5,7 @@
 //  Test helper: builds valid 88-byte RaceBox data packets (UBX framing,
 //  class 0xFF id 0x01, 80-byte payload, Fletcher checksum). Fields are in
 //  natural units; the builder scales them to the wire format. Written against
-//  the layout GnimuPacket.parse reads, so a parse regression shows up as a
+//  the layout RaceBoxPacket.parse reads, so a parse regression shows up as a
 //  mismatch between what was built and what was decoded.
 //
 

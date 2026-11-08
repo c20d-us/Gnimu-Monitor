@@ -66,6 +66,26 @@ struct SyntheticCapture {
     static let startedAt = "2026-11-08T10:00:00.000Z"
     static let deviceName = "Gnimu 0000000001"
 
+    /// The drive with one of every fault and no summary line; the analyzer
+    /// tests describe each fault and what it should produce.
+    static var faulty: SyntheticCapture {
+        var capture = SyntheticCapture()
+        capture.faults = [
+            Fault(at: 6, kind: .missedFixBoth),
+            Fault(at: 8, kind: .corruptLine),
+            Fault(at: 9, kind: .garbageLine),
+            Fault(at: 12, kind: .missedFixDevice),
+            Fault(at: 15, kind: .batteryRise),
+            Fault(at: 18, kind: .missedFixTransport),
+            Fault(at: 20, kind: .clockMismatch),
+            Fault(at: 24, kind: .lateFix),
+            Fault(at: 30, kind: .duplicateITOW),
+            Fault(at: 36, kind: .interruption),
+        ]
+        capture.includeTrailer = false
+        return capture
+    }
+
     var periodMs: Int { Int((1000 / hz).rounded()) }
     var frameCount: Int { Int(seconds * hz) }
 
