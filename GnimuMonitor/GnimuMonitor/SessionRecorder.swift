@@ -241,7 +241,8 @@ final class SessionRecorder: ObservableObject {
         return fm.fileExists(atPath: placeholder.path)
     }
 
-    func start(deviceName: String?, peripheralID: String?, nominalHz: Double?) {
+    func start(deviceName: String?, peripheralID: String?, nominalHz: Double?,
+               deviceProtocol: DeviceProtocol) {
         guard !isRecording else { return }
 
         sessionID = UUID()
@@ -253,7 +254,8 @@ final class SessionRecorder: ObservableObject {
         lastCapture = nil
 
         let header = headerLine(startedAt: now, deviceName: deviceName,
-                                peripheralID: peripheralID, nominalHz: nominalHz)
+                                peripheralID: peripheralID, nominalHz: nominalHz,
+                                deviceProtocol: deviceProtocol)
         do {
             // Written to a scratch directory first: appending 25 times a second
             // directly inside the iCloud container would have the sync daemon
@@ -359,7 +361,8 @@ final class SessionRecorder: ObservableObject {
     /// line in the whole file, and a capture you can't attribute later is worth
     /// much less than one you can.
     private func headerLine(startedAt: Date, deviceName: String?,
-                            peripheralID: String?, nominalHz: Double?) -> Data {
+                            peripheralID: String?, nominalHz: Double?,
+                            deviceProtocol: DeviceProtocol) -> Data {
         var device: [String: Any] = [:]
         if let deviceName { device["name"] = deviceName }
         // Note: iOS peripheral identifiers are per-install, not device serials —
@@ -367,8 +370,8 @@ final class SessionRecorder: ObservableObject {
         if let peripheralID { device["peripheralId"] = peripheralID }
 
         var capture: [String: Any] = [
-            "protocol": DeviceProtocol.raceBox.rawValue,
-            "frameBytes": DeviceProtocol.raceBox.frameBytes,
+            "protocol": deviceProtocol.rawValue,
+            "frameBytes": deviceProtocol.frameBytes,
             "encoding": "base64",
             // Says how to read the "t" on every packet line.
             "timeBase": "seconds since startedAt, monotonic"

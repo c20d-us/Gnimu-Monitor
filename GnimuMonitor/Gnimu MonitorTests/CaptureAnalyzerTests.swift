@@ -316,6 +316,50 @@ struct CaptureReadingTests {
         }
     }
 
+    @Test func aCaptureOfAnotherProtocolIsRefusedNotMisread() {
+        var capture = SyntheticCapture()
+        capture.seconds = 4
+        let text = String(decoding: capture.data(), as: UTF8.self)
+            .replacingOccurrences(of: "\"protocol\":\"racebox\"", with: "\"protocol\":\"gnimu\"")
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("analyzer-test-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+        do {
+            try Data(text.utf8).write(to: url)
+            _ = try CaptureAnalyzer.analyze(url: url)
+            Issue.record("expected the capture to be refused")
+        } catch let error as CaptureReadError {
+            guard case .unsupportedProtocol(let name) = error else {
+                Issue.record("expected unsupportedProtocol, got \(error)")
+                return
+            }
+            #expect(name == "gnimu")
+            #expect(error.errorDescription?.contains("gnimu") == true)
+        } catch {
+            Issue.record("unexpected error \(error)")
+        }
+    }
+
+    @Test func aCaptureThatNamesNoProtocolIsRaceBox() throws {
+        // Captures made before the protocol was recorded.
+        var capture = SyntheticCapture()
+        capture.seconds = 4
+        let text = String(decoding: capture.data(), as: UTF8.self)
+            .replacingOccurrences(of: "\"protocol\":\"racebox\",", with: "")
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("analyzer-test-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data(text.utf8).write(to: url)
+        let a = try CaptureAnalyzer.analyze(url: url)
+        #expect(a.summary.packetsReceived == 100)
+        #expect(a.header.protocolName == nil)
+    }
+
+    @Test func theProtocolNameIsReadFromTheHeader() throws {
+        let a = try analyze(SyntheticCapture())
+        #expect(a.header.protocolName == "racebox")
+    }
+
     @Test func aFinalLineWithoutANewlineIsStillRead() throws {
         var capture = SyntheticCapture()
         capture.seconds = 4                                // 100 packets

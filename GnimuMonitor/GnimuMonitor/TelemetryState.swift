@@ -141,24 +141,82 @@ nonisolated struct PowerBlock: Sendable, Equatable {
     var supplyVolts: Double?
 }
 
+/// What the car reports, from OBD-II, a manufacturer identifier or the bus.
+/// Metric: km/h, degrees Celsius, kPa. Each field means the same whatever its
+/// source (the Gnimu protocol's vehicle block), and is `nil` until the device
+/// has a value for it.
+nonisolated struct VehicleBlock: Sendable, Equatable {
+    var engineSpeedRpm: Double?
+    var throttlePercent: Double?
+    var acceleratorPedalPercent: Double?
+    var speedKmh: Double?
+    var coolantTempC: Double?
+    var intakeAirTempC: Double?
+    var ambientTempC: Double?
+    var oilTempC: Double?
+    var transmissionTempC: Double?
+    var chargeAirCoolerTempC: Double?
+    var oilPressureKpa: Double?
+    /// Above atmospheric; negative under vacuum.
+    var boostKpa: Double?
+    var fuelLevelPercent: Double?
+    var brakePressureKpa: Double?
+    var brakePressed: Bool?
+    var clutchPressed: Bool?
+    /// Degrees, left positive.
+    var steeringAngleDeg: Double?
+    /// The car's own sensors (not the device's IMU), left and forward positive.
+    var yawRateDegPerSec: Double?
+    var lateralG: Double?
+    var longitudinalG: Double?
+    var wheelSpeedFrontLeftKmh: Double?
+    var wheelSpeedFrontRightKmh: Double?
+    var wheelSpeedRearLeftKmh: Double?
+    var wheelSpeedRearRightKmh: Double?
+    /// -1 reverse, 0 neutral, 1 and up forward.
+    var gear: Int?
+    /// The device's own extra channels, as raw integers; the device's schema
+    /// says what each one is and how to scale it.
+    var aux: [Double?] = [nil, nil, nil, nil]
+}
+
+/// What the device says about itself in every frame, for protocols that have
+/// such a header (the Gnimu protocol; RaceBox has none).
+nonisolated struct DeviceHeader: Sendable, Equatable {
+    /// Milliseconds since the device booted. Wraps after 2^31 ms.
+    var deviceTimeMs: Int32
+    /// Counts up by one per frame, wrapping at 255; a gap means a lost frame.
+    var sequence: UInt8
+    /// Raw state byte: 0 unknown, 1 starting, 2 running, 3 waiting, 4 fault.
+    var stateRaw: UInt8
+    /// Bits for the blocks the device fills: 1 GNSS, 2 IMU, 4 vehicle, 8 power.
+    var capabilities: UInt8
+}
+
 // MARK: - Updates and state
 
 /// The blocks one decoded notification carried. A block the protocol didn't
 /// deliver is `nil`, which leaves the state's copy of it alone.
 nonisolated struct TelemetryUpdate: Sendable, Equatable {
+    var header: DeviceHeader?
     var gnss: GnssBlock?
     var imu: ImuBlock?
+    var vehicle: VehicleBlock?
     var power: PowerBlock?
 }
 
 /// What the device has told us, block by block, with when each last arrived.
 nonisolated struct TelemetryState: Sendable, Equatable {
+    var header: DeviceHeader?
     var gnss: GnssBlock?
     var imu: ImuBlock?
+    var vehicle: VehicleBlock?
     var power: PowerBlock?
 
+    private(set) var headerUpdatedAt: Date?
     private(set) var gnssUpdatedAt: Date?
     private(set) var imuUpdatedAt: Date?
+    private(set) var vehicleUpdatedAt: Date?
     private(set) var powerUpdatedAt: Date?
 
     /// Counts merged updates. Views watch it to react to new data, since the
@@ -168,8 +226,10 @@ nonisolated struct TelemetryState: Sendable, Equatable {
     init() {}
 
     mutating func apply(_ update: TelemetryUpdate, at time: Date) {
+        if let block = update.header { header = block; headerUpdatedAt = time }
         if let block = update.gnss { gnss = block; gnssUpdatedAt = time }
         if let block = update.imu { imu = block; imuUpdatedAt = time }
+        if let block = update.vehicle { vehicle = block; vehicleUpdatedAt = time }
         if let block = update.power { power = block; powerUpdatedAt = time }
         revision += 1
     }

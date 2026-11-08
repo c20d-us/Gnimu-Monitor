@@ -24,7 +24,7 @@ import UIKit
 /// stacked layouts offers `stripTabs`; the swipeable deck pages through
 /// `deckPages`, which adds the map and the g-force meter.
 enum MonitorPanel: String, Identifiable {
-    case map, data, fixRate, gForce, level, capture, device
+    case map, data, fixRate, gForce, level, capture, device, vehicle
     var id: String { rawValue }
 
     var label: String {
@@ -36,18 +36,19 @@ enum MonitorPanel: String, Identifiable {
         case .level:   return "Level"
         case .capture: return "Capture"
         case .device:  return "Device"
+        case .vehicle: return "Vehicle"
         }
     }
 
     /// Panels the tab strip offers. The Device panel exists only for devices
     /// that offer configuration and commands.
-    static func stripTabs(hasDevice: Bool) -> [MonitorPanel] {
-        [.data, .fixRate, .level, .capture] + (hasDevice ? [.device] : [])
+    static func stripTabs(hasDevice: Bool, hasVehicle: Bool = false) -> [MonitorPanel] {
+        (hasVehicle ? [.vehicle] : []) + [.data, .fixRate, .level, .capture] + (hasDevice ? [.device] : [])
     }
 
     /// Pages of the swipeable deck, in order.
-    static func deckPages(hasDevice: Bool) -> [MonitorPanel] {
-        [.map, .data, .fixRate, .gForce, .level, .capture] + (hasDevice ? [.device] : [])
+    static func deckPages(hasDevice: Bool, hasVehicle: Bool = false) -> [MonitorPanel] {
+        (hasVehicle ? [.vehicle] : []) + [.map, .data, .fixRate, .gForce, .level, .capture] + (hasDevice ? [.device] : [])
     }
 }
 
@@ -89,7 +90,16 @@ struct MonitorView: View {
     /// launch (per-session state, not @AppStorage): the deck opens on its
     /// first page, and the strip layouts, which show the map permanently,
     /// read it as Data (see `stripSelection`).
-    @State private var selected: MonitorPanel = .map
+    @State private var selected: MonitorPanel = MonitorView.initialPanel
+
+    /// The panel shown first. Debug builds can ask for another with `-startPanel`.
+    private static var initialPanel: MonitorPanel {
+        #if DEBUG
+        return DemoLaunch.startPanel ?? .map
+        #else
+        return .map
+        #endif
+    }
     /// The map's zoom, follow mode and style, held here so they survive a
     /// layout change that rebuilds the map view.
     @StateObject private var mapState = MapState()
@@ -129,7 +139,8 @@ struct MonitorView: View {
     // MARK: - Shared pieces
 
     private var stripTabs: [MonitorPanel] {
-        MonitorPanel.stripTabs(hasDevice: ble.supportsDeviceControl)
+        MonitorPanel.stripTabs(hasDevice: ble.supportsDeviceControl,
+                               hasVehicle: ble.telemetry?.vehicle != nil)
     }
 
     /// The panel the tab strip shows. The map and g-force pages exist only in
@@ -156,6 +167,7 @@ struct MonitorView: View {
         case .capture: RecordPanel(ble: ble, recorder: ble.recorder,
                                    analysis: ble.analysisRunner)
         case .device:  DevicePanel(ble: ble, recorder: ble.recorder)
+        case .vehicle: VehiclePanel(ble: ble)
         default:       DataPanel(telemetry: ble.telemetry)
         }
     }
@@ -281,6 +293,9 @@ private struct CompactMonitor: View {
                 .padding(12)
 
             TabView(selection: $selected) {
+                if ble.telemetry?.vehicle != nil {
+                    TitledPage("Vehicle") { VehiclePanel(ble: ble) }.tag(MonitorPanel.vehicle)
+                }
                 MapPage(telemetry: ble.telemetry, mapState: mapState).tag(MonitorPanel.map)
                 DataPanel(telemetry: ble.telemetry).tag(MonitorPanel.data)
                 TitledPage("Fix Rate") { FixRatePanel(ble: ble) }.tag(MonitorPanel.fixRate)

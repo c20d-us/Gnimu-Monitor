@@ -34,6 +34,8 @@ import SwiftUI
 ///   -replay /path/to/capture.jsonl   play a capture back as if a device were
 ///                       connected (-replaySpeed 4 for faster, -replayLoop to
 ///                       repeat); see ReplayCapture
+///   -startPanel vehicle  open on that panel (map, data, fixRate, gForce, level,
+///                       capture, device or vehicle) instead of the map
 enum DemoLaunch {
     static var isDemo: Bool { CommandLine.arguments.contains("-demoMonitor") }
 
@@ -84,6 +86,13 @@ enum DemoLaunch {
               i + 1 < CommandLine.arguments.count else { return nil }
         let parts = CommandLine.arguments[i + 1].split(separator: "x").compactMap { Double($0) }
         return parts.count == 2 ? CGSize(width: parts[0], height: parts[1]) : nil
+    }
+
+    /// The panel to open on, from `-startPanel <name>`.
+    static var startPanel: MonitorPanel? {
+        let args = CommandLine.arguments
+        guard let i = args.firstIndex(of: "-startPanel"), i + 1 < args.count else { return nil }
+        return MonitorPanel(rawValue: args[i + 1])
     }
 
     /// The capture to replay, from `-replay <path>`.

@@ -41,6 +41,9 @@ nonisolated struct CaptureHeader: Sendable {
 
     var nominalHz: Double?
     var frameBytes: Int = 88
+    /// The protocol the frames are in (`DeviceProtocol.rawValue`). Captures made
+    /// before it was recorded are RaceBox.
+    var protocolName: String?
 }
 
 /// The last line, written only on a clean stop. Its absence means the capture
@@ -57,6 +60,7 @@ nonisolated enum CaptureReadError: LocalizedError {
     case unreadable(String)
     case missingHeader
     case noPackets
+    case unsupportedProtocol(String)
     case cancelled
 
     var errorDescription: String? {
@@ -64,6 +68,8 @@ nonisolated enum CaptureReadError: LocalizedError {
         case .unreadable(let why): return "Couldn't read the capture: \(why)"
         case .missingHeader:       return "This file has no capture header — it may not be a Gnimu capture."
         case .noPackets:           return "This capture contains no readable packets."
+        case .unsupportedProtocol(let name):
+            return "This capture holds \(name) frames. Analysis reads only RaceBox captures so far."
         case .cancelled:           return "Analysis was cancelled."
         }
     }
@@ -142,6 +148,12 @@ nonisolated enum CaptureReader {
 
                 switch classify(line) {
                 case .header(let h):
+                    // Analysis is built around RaceBox's fix timestamps; any other
+                    // protocol's frames would be misread as RaceBox ones and
+                    // reported as undecodable.
+                    if let name = h.protocolName, name != DeviceProtocol.raceBox.rawValue {
+                        throw CaptureReadError.unsupportedProtocol(name)
+                    }
                     sawHeader = true
                     onHeader(h)
                 case .frame(let t, let packet):
@@ -234,6 +246,7 @@ nonisolated enum CaptureReader {
         if let capture = d["capture"] as? [String: Any] {
             h.nominalHz = capture["nominalHz"] as? Double
             h.frameBytes = capture["frameBytes"] as? Int ?? 88
+            h.protocolName = capture["protocol"] as? String
         }
         return h
     }

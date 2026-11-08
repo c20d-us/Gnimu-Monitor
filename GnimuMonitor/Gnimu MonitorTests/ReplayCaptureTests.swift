@@ -39,11 +39,12 @@ struct ReplayCaptureTests {
         defer { try? FileManager.default.removeItem(at: url) }
         let capture = try ReplayCapture.load(url: url)
 
-        var decoder = capture.deviceProtocol.makeDecoder()
+        var session = capture.deviceProtocol.makeSession()
+        let characteristic = capture.deviceProtocol.notifyCharacteristicUUIDs[0]
         var state = TelemetryState()
         var epochs: [UInt32] = []
         for frame in capture.frames {
-            for decoded in decoder.feed(frame.data) {
+            for decoded in session.receive(frame.data, from: characteristic) {
                 state.apply(decoded.update, at: Date(timeIntervalSinceReferenceDate: frame.t))
                 epochs.append(decoded.gnssEpochMs ?? 0)
             }
@@ -67,8 +68,9 @@ struct ReplayCaptureTests {
 
         // 1000 packets, the duplicate, and the corrupt one. The garbage line is skipped.
         #expect(capture.frames.count == 1002)
-        var decoder = capture.deviceProtocol.makeDecoder()
-        let decoded = capture.frames.flatMap { decoder.feed($0.data) }
+        var session = capture.deviceProtocol.makeSession()
+        let characteristic = capture.deviceProtocol.notifyCharacteristicUUIDs[0]
+        let decoded = capture.frames.flatMap { session.receive($0.data, from: characteristic) }
         #expect(decoded.count == 1001)
     }
 
@@ -96,6 +98,66 @@ struct ReplayCaptureTests {
         try Data(text.utf8).write(to: url)
         defer { try? FileManager.default.removeItem(at: url) }
         #expect(try ReplayCapture.load(url: url).deviceProtocol == .raceBox)
+    }
+}
+
+struct GnimuReplayTests {
+
+    private func load(_ capture: SyntheticGnimuCapture) throws -> ReplayCapture {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("replay-test-\(UUID().uuidString).jsonl")
+        try capture.data().write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        return try ReplayCapture.load(url: url)
+    }
+
+    @Test func aGnimuCaptureReplaysAsTheGnimuProtocol() throws {
+        let capture = try load(SyntheticGnimuCapture())
+        #expect(capture.deviceProtocol == .gnimu)
+        #expect(capture.deviceName == SyntheticGnimuCapture.deviceName)
+        #expect(capture.frames.count == 600)
+        #expect(capture.frames.allSatisfy { $0.data.count == 140 })
+    }
+
+    @Test func theDeviceWaitsThenPollsTheCar() throws {
+        let capture = try load(SyntheticGnimuCapture())
+        var session = capture.deviceProtocol.makeSession()
+        let characteristic = capture.deviceProtocol.notifyCharacteristicUUIDs[0]
+        var states: [(t: Double, state: TelemetryState)] = []
+        var state = TelemetryState()
+        for frame in capture.frames {
+            for decoded in session.receive(frame.data, from: characteristic) {
+                state.apply(decoded.update, at: Date(timeIntervalSinceReferenceDate: frame.t))
+                states.append((frame.t, state))
+            }
+        }
+        #expect(states.count == 600)
+
+        // Waiting: the device is up, the car isn't answering, only the supply is live.
+        let waiting = try #require(states.first { $0.t >= 1 }).state
+        #expect(waiting.header?.stateRaw == 3)
+        #expect(waiting.vehicle == VehicleBlock())
+        #expect(waiting.power?.supplyVolts == 12.4)
+
+        // Polling at full throttle.
+        let running = try #require(states.first { $0.t >= 4 + 11 }).state
+        #expect(running.header?.stateRaw == 2)
+        #expect((running.vehicle?.engineSpeedRpm ?? 0) > 3000)
+        #expect(running.vehicle?.throttlePercent == 100)
+        #expect(running.vehicle?.coolantTempC == 88.5)
+        #expect(running.power?.supplyVolts == 13.8)
+
+        // The sequence counts up by one a frame.
+        let sequences = states.compactMap { $0.state.header?.sequence }
+        #expect(zip(sequences, sequences.dropFirst()).allSatisfy { UInt8(truncatingIfNeeded: Int($0) + 1) == $1 })
+    }
+
+    @Test func aGnimuCaptureIsNotAnalysedAsRaceBox() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("replay-test-\(UUID().uuidString).jsonl")
+        try SyntheticGnimuCapture().data().write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(throws: CaptureReadError.self) { try CaptureAnalyzer.analyze(url: url) }
     }
 }
 
@@ -129,6 +191,7 @@ struct SyntheticCaptureFiles {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try SyntheticCapture().data().write(to: folder.appendingPathComponent("clean-drive.jsonl"))
         try SyntheticCapture.faulty.data().write(to: folder.appendingPathComponent("faulty-drive.jsonl"))
+        try SyntheticGnimuCapture().data().write(to: folder.appendingPathComponent("gnimu-can-drive.jsonl"))
         print("Synthetic captures written to \(folder.path)")
     }
 }

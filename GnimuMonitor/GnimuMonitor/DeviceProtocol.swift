@@ -18,49 +18,43 @@ import CoreBluetooth
 import Foundation
 
 /// A BLE telemetry protocol the Monitor can read: where its data arrives and
-/// how the notification bytes become packets. Everything protocol-specific
+/// how the notification bytes become telemetry. Everything protocol-specific
 /// about a live connection lives behind this, so BLEManager only moves bytes.
 nonisolated enum DeviceProtocol: String, CaseIterable {
     /// The RaceBox data protocol: 88-byte UBX-framed packets over the Nordic
     /// UART service. The raw value is what captures record as their protocol.
     case raceBox = "racebox"
+    /// The Gnimu protocol: one fixed 140-byte frame for every Gnimu device,
+    /// on its own service. See the Gnimu-protocol repository.
+    case gnimu = "gnimu"
 
     var serviceUUID: CBUUID {
         switch self {
         case .raceBox: return CBUUID(string: "6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
+        case .gnimu: return CBUUID(string: "9074BEB4-2F1A-4B5F-9818-FE2D2277EF05")
         }
     }
 
-    /// The characteristic the device notifies its data on.
-    var notifyCharacteristicUUID: CBUUID {
+    /// The characteristics the device notifies its data on. Every notification
+    /// from one of them goes to the protocol's session.
+    var notifyCharacteristicUUIDs: [CBUUID] {
         switch self {
-        case .raceBox: return CBUUID(string: "6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
+        case .raceBox: return [CBUUID(string: "6E400003-B5A3-F393-E0A9-E50E24DCCA9E")]
+        case .gnimu: return [Self.gnimuFrameCharacteristicUUID]
         }
     }
+
+    /// The Gnimu frame characteristic (v1).
+    static let gnimuFrameCharacteristicUUID = CBUUID(string: "0752D3C3-CEAF-462F-A944-BCC06C57284B")
+    /// Readable once after connecting: what the device fills, and how it is set up.
+    static let gnimuSchemaCharacteristicUUID = CBUUID(string: "1C9B3945-10EB-4FD0-A5A4-B9D80842380D")
+    static let gnimuDeviceInfoCharacteristicUUID = CBUUID(string: "6D0ADFEF-8218-488A-A5F9-1BA05F422C22")
 
     /// The protocol's name as the device picker shows it.
     var displayName: String {
         switch self {
         case .raceBox: return "RaceBox"
-        }
-    }
-
-    /// Advertised-name prefixes of devices known to speak this protocol.
-    private var namePrefixes: [String] {
-        switch self {
-        case .raceBox: return ["Gnimu", "RaceBox"]
-        }
-    }
-
-    /// Which protocol a scanned device speaks, or nil if it isn't one the
-    /// Monitor reads. An advertised service is the reliable signal: it holds
-    /// whatever the device is named. The name only catches a device whose
-    /// advertisement didn't carry the service. Several protocols may share a
-    /// service, so this is where a future one tells itself apart.
-    static func identify(name: String?, advertisedServices: [CBUUID]) -> DeviceProtocol? {
-        allCases.first { proto in
-            advertisedServices.contains(proto.serviceUUID)
-                || (name.map { n in proto.namePrefixes.contains { n.hasPrefix($0) } } ?? false)
+        case .gnimu: return "Gnimu"
         }
     }
 
@@ -68,13 +62,73 @@ nonisolated enum DeviceProtocol: String, CaseIterable {
     var frameBytes: Int {
         switch self {
         case .raceBox: return RaceBoxFrameDecoder.frameBytes
+        case .gnimu: return GnimuFrameV1.frameBytes
         }
     }
 
-    func makeDecoder() -> any FrameDecoder {
+    func makeSession() -> any ProtocolSession {
         switch self {
         case .raceBox: return RaceBoxFrameDecoder()
+        case .gnimu: return GnimuFrameSession()
         }
+    }
+
+    // MARK: Identification
+
+    /// Which protocol a scanned device appears to speak, and how sure that is.
+    struct Identification: Equatable {
+        let deviceProtocol: DeviceProtocol
+        /// True when an advertised service says so. False when it's a guess from
+        /// the name, which can be overridden: that is only ever a first label,
+        /// replaced when a later advertisement carries a service, and settled
+        /// for good by the services the device exposes once connected.
+        let isConfirmed: Bool
+    }
+
+    /// Advertised-name prefixes that suggest a protocol, most specific first.
+    /// `Gnimu-RB` is a Gnimu in RaceBox mode, `Gnimu-CAN` is Gnimu-CAN, and a
+    /// bare `Gnimu` followed by its ID is a Gnimu in its own protocol.
+    private static let namePrefixes: [(prefix: String, deviceProtocol: DeviceProtocol)] = [
+        ("RaceBox", .raceBox),
+        ("Gnimu-RB", .raceBox),
+        ("Gnimu-CAN", .gnimu),
+        ("Gnimu", .gnimu),
+    ]
+
+    /// Identifies a scanned device, or returns nil if it isn't one the Monitor
+    /// reads. The advertised service is the reliable signal, so it is tried
+    /// first, for every protocol, before the name is looked at.
+    static func identify(name: String?, advertisedServices: [CBUUID]) -> Identification? {
+        for proto in allCases where advertisedServices.contains(proto.serviceUUID) {
+            return Identification(deviceProtocol: proto, isConfirmed: true)
+        }
+        guard let name else { return nil }
+        for (prefix, proto) in namePrefixes where name.hasPrefix(prefix) {
+            return Identification(deviceProtocol: proto, isConfirmed: false)
+        }
+        return nil
+    }
+
+    /// The protocol of a connected device, from the services it exposes. This is
+    /// final, over anything the scan or the name suggested.
+    static func resolve(discoveredServices: [CBUUID]) -> DeviceProtocol? {
+        allCases.first { discoveredServices.contains($0.serviceUUID) }
+    }
+
+    /// Every protocol's service, so a connection can look for all of them and
+    /// find the right one even if the scan guessed wrong.
+    static var allServiceUUIDs: [CBUUID] { allCases.map(\.serviceUUID) }
+}
+
+extension DeviceProtocol.Identification {
+    /// The label after another advertisement from the same device. A guess from
+    /// the name gives way to a service the advertisement carries; a confirmed
+    /// label is never revisited, since a later advertisement may omit the
+    /// service an earlier one carried (or, rarely, carry another).
+    func refined(byAdvertisedServices services: [CBUUID]) -> DeviceProtocol.Identification {
+        guard !isConfirmed,
+              let found = DeviceProtocol.identify(name: nil, advertisedServices: services) else { return self }
+        return found
     }
 }
 
@@ -88,21 +142,45 @@ nonisolated struct DecodedFrame {
     let gnssEpochMs: UInt32?
 }
 
-/// Turns the notification stream into frames. Notifications don't line up
-/// with frames, so a decoder buffers across calls.
-nonisolated protocol FrameDecoder {
+/// Turns what a device notifies into frames. It is told which characteristic
+/// each notification came from, so a protocol with several can keep state
+/// across them, and it buffers across calls because notifications needn't line
+/// up with frames.
+nonisolated protocol ProtocolSession {
     /// Adds the bytes of one notification and returns every frame they
     /// completed, oldest first.
-    mutating func feed(_ bytes: Data) -> [DecodedFrame]
+    mutating func receive(_ bytes: Data, from characteristic: CBUUID) -> [DecodedFrame]
 
-    /// Drops buffered bytes, for a new connection.
+    /// Drops buffered state, for a new connection.
     mutating func reset()
+}
+
+/// The Gnimu protocol's session. Each notification on the frame characteristic
+/// is exactly one frame, so there is nothing to reassemble; one that isn't a
+/// valid frame (wrong length, or a spec version this build doesn't read) is
+/// dropped and counted.
+nonisolated struct GnimuFrameSession: ProtocolSession {
+    /// Notifications dropped as not valid frames, this connection.
+    private(set) var rejected = 0
+
+    mutating func receive(_ bytes: Data, from characteristic: CBUUID) -> [DecodedFrame] {
+        guard characteristic == DeviceProtocol.gnimuFrameCharacteristicUUID else { return [] }
+        do {
+            let frame = try GnimuFrameV1.Frame(bytes)
+            return [DecodedFrame(raw: bytes, update: frame.telemetryUpdate, gnssEpochMs: nil)]
+        } catch {
+            rejected += 1
+            return []
+        }
+    }
+
+    mutating func reset() { rejected = 0 }
 }
 
 /// Reassembles RaceBox packets: finds the B5 62 sync, takes 88 bytes, and
 /// keeps it only if the checksum holds. A failed candidate costs one byte, so
 /// a stray sync pattern inside garbage doesn't swallow a real frame behind it.
-nonisolated struct RaceBoxFrameDecoder: FrameDecoder {
+nonisolated struct RaceBoxFrameDecoder: ProtocolSession {
     static let frameBytes = 88
 
     private var buffer: [UInt8] = []
@@ -124,6 +202,10 @@ nonisolated struct RaceBoxFrameDecoder: FrameDecoder {
             }
         }
         return frames
+    }
+
+    mutating func receive(_ bytes: Data, from characteristic: CBUUID) -> [DecodedFrame] {
+        feed(bytes)
     }
 
     mutating func reset() {

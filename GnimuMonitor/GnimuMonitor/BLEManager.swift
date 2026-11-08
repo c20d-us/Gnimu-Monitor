@@ -32,9 +32,13 @@ struct DiscoveredDevice: Identifiable {
     /// not connectable, but kept briefly in case it comes back.
     var isStale: Bool = false
 
-    /// Fixed when the device is first listed: a later advertisement may omit
-    /// the service the first one carried.
-    let deviceProtocol: DeviceProtocol
+    /// What the scan says the device speaks. A label from the name alone is only
+    /// a first guess (`isProtocolConfirmed` false): an advertisement that carries
+    /// a service replaces it, and once confirmed it never changes, since a later
+    /// advertisement may omit the service the earlier one carried. Connecting
+    /// settles it for good, from the services the device actually exposes.
+    var deviceProtocol: DeviceProtocol
+    var isProtocolConfirmed: Bool
 
     /// The name from the latest advertisement. `peripheral.name` is the OS's
     /// cached copy, which keeps a device's old name until the next connection.
@@ -57,7 +61,9 @@ struct FixRateSample {
 class BLEManager: NSObject, ObservableObject {
 
     /// The protocol of the device being read.
-    private var deviceProtocol = DeviceProtocol.raceBox
+    /// The protocol of the device being read. Set from the scan, and corrected
+    /// when the connected device's services say otherwise.
+    private(set) var deviceProtocol = DeviceProtocol.raceBox
 
     /// How long without an advertisement before a device is dimmed, then removed.
     /// Kept above a couple of advertising intervals so a missed beacon doesn't flicker rows.
@@ -73,7 +79,7 @@ class BLEManager: NSObject, ObservableObject {
     /// Where commands are written, once discovered on the connected device.
     private var commandCharacteristic: CBCharacteristic?
     private var configCharacteristic: CBCharacteristic?
-    private var decoder = DeviceProtocol.raceBox.makeDecoder()
+    private var session = DeviceProtocol.raceBox.makeSession()
     private var lastUIUpdate: Date = .distantPast
     private let uiUpdateInterval: TimeInterval = 0.1
     private var pruneTimer: Timer?
@@ -82,6 +88,8 @@ class BLEManager: NSObject, ObservableObject {
     #if DEBUG
     /// The debug replay in progress, if any. See `startReplay`.
     private var replayTask: Task<Void, Never>?
+    /// How many advertisements of each device `-logAdvertisements` has printed.
+    private var loggedAdvertisements: [UUID: Int] = [:]
     #endif
 
     /// Derives fix-rate health from the iTOW timestamps of every parsed packet
@@ -118,6 +126,13 @@ class BLEManager: NSObject, ObservableObject {
     /// characteristic and a way to take commands: that is, newer Gnimu
     /// firmware. The Device panel appears only then.
     @Published var supportsDeviceControl = false
+
+    /// What the device says about itself, read once after connecting. The
+    /// identity comes from the standard Device Information Service; the schema
+    /// and device info are the Gnimu protocol's own characteristics.
+    @Published var deviceIdentity = DeviceIdentity()
+    @Published var gnimuSchema: GnimuSchema?
+    @Published var gnimuDeviceInfo: GnimuDeviceInfo?
     /// The device's configuration text, parsed. Nil until the read returns.
     @Published var deviceConfig: DeviceConfig?
 
@@ -181,7 +196,7 @@ class BLEManager: NSObject, ObservableObject {
         dismissNotice()
         stopScanning()
         deviceProtocol = device.deviceProtocol
-        decoder = deviceProtocol.makeDecoder()
+        session = deviceProtocol.makeSession()
         selectedDeviceName = device.name
         connectedPeripheral = device.peripheral
         isConnecting = true
@@ -191,6 +206,16 @@ class BLEManager: NSObject, ObservableObject {
         // in case the device has gone offline since it was selected.
         connectTimer = Timer.scheduledTimer(withTimeInterval: connectTimeout, repeats: false) { [weak self] _ in
             self?.connectAttemptTimedOut()
+        }
+    }
+
+    /// The rate the device is meant to hold, for a capture's header: what the
+    /// fix-rate tracker has inferred for RaceBox, or what a Gnimu-protocol
+    /// device declares in its schema.
+    var captureNominalHz: Double? {
+        switch deviceProtocol {
+        case .raceBox: return fixRate.nominalHz
+        case .gnimu: return gnimuSchema?.rateHz
         }
     }
 
@@ -233,6 +258,9 @@ class BLEManager: NSObject, ObservableObject {
         configCharacteristic = nil
         supportsDeviceControl = false
         deviceConfig = nil
+        deviceIdentity = DeviceIdentity()
+        gnimuSchema = nil
+        gnimuDeviceInfo = nil
     }
 
     private func updateDeviceControlSupport() {
@@ -305,10 +333,10 @@ class BLEManager: NSObject, ObservableObject {
         }
     }
 
-    private func ingest(_ notification: Data) {
+    private func ingest(_ notification: Data, from characteristic: CBUUID) {
         let now = Date()
         var received = false
-        for frame in decoder.feed(notification) {
+        for frame in session.receive(notification, from: characteristic) {
             // Record every frame for rate tracking and capture (not just
             // those that survive the UI throttle below).
             if let epoch = frame.gnssEpochMs { recordPacketArrival(itow: epoch) }
@@ -352,6 +380,9 @@ extension BLEManager: CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
         let rssi = RSSI.intValue
+        #if DEBUG
+        logAdvertisement(of: peripheral, advertisementData, rssi: rssi)
+        #endif
         // Only some advertisements carry the name (it rides in the scan
         // response), so a missing one says nothing about the name.
         let advertisedName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
@@ -363,12 +394,23 @@ extension BLEManager: CBCentralManagerDelegate {
                 discoveredDevices[i].advertisedName = advertisedName
                 sortDiscoveredDevices()
             }
+            // A guess from the name gives way to an advertisement that carries
+            // a service; a confirmed label is never revisited.
+            if let services = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] {
+                let label = DeviceProtocol.Identification(
+                    deviceProtocol: discoveredDevices[i].deviceProtocol,
+                    isConfirmed: discoveredDevices[i].isProtocolConfirmed)
+                    .refined(byAdvertisedServices: services)
+                discoveredDevices[i].deviceProtocol = label.deviceProtocol
+                discoveredDevices[i].isProtocolConfirmed = label.isConfirmed
+            }
         } else {
             let services = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
-            guard let deviceProtocol = DeviceProtocol.identify(name: advertisedName ?? peripheral.name,
-                                                               advertisedServices: services) else { return }
+            guard let found = DeviceProtocol.identify(name: advertisedName ?? peripheral.name,
+                                                      advertisedServices: services) else { return }
             discoveredDevices.append(DiscoveredDevice(peripheral: peripheral, rssi: rssi, lastSeen: Date(),
-                                                      deviceProtocol: deviceProtocol,
+                                                      deviceProtocol: found.deviceProtocol,
+                                                      isProtocolConfirmed: found.isConfirmed,
                                                       advertisedName: advertisedName))
             sortDiscoveredDevices()
         }
@@ -392,11 +434,14 @@ extension BLEManager: CBCentralManagerDelegate {
         cancelConnectTimer()
         isConnecting = false
         isConnected = true
-        decoder.reset()
+        session.reset()
         clearDeviceControl()
         recorder.beginSession()
         startRateTimer()
-        peripheral.discoverServices([deviceProtocol.serviceUUID, GnimuDevice.serviceUUID])
+        // Ask for every protocol's service, not just the one the scan guessed,
+        // so the right one is found even if the guess was wrong.
+        peripheral.discoverServices(DeviceProtocol.allServiceUUIDs
+                                    + [GnimuDevice.serviceUUID, DeviceIdentity.serviceUUID])
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
@@ -420,7 +465,7 @@ extension BLEManager: CBCentralManagerDelegate {
         selectedDeviceName = nil
         telemetry = nil
         liveState = TelemetryState()
-        decoder.reset()
+        session.reset()
         clearDeviceControl()
     }
 }
@@ -429,13 +474,37 @@ extension BLEManager: CBPeripheralDelegate {
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         guard let services = peripheral.services else { return }
+
+        // The services the device actually exposes are the last word on what it
+        // speaks. If the scan guessed otherwise (a name can be overridden), go
+        // with the services.
+        if let actual = DeviceProtocol.resolve(discoveredServices: services.map(\.uuid)),
+           actual != deviceProtocol {
+            deviceProtocol = actual
+            session = actual.makeSession()
+        }
+
         for service in services {
-            if service.uuid == deviceProtocol.serviceUUID {
-                peripheral.discoverCharacteristics(
-                    [deviceProtocol.notifyCharacteristicUUID, GnimuDevice.commandCharacteristicUUID],
-                    for: service)
-            } else if service.uuid == GnimuDevice.serviceUUID {
+            switch service.uuid {
+            case deviceProtocol.serviceUUID:
+                switch deviceProtocol {
+                case .raceBox:
+                    peripheral.discoverCharacteristics(
+                        deviceProtocol.notifyCharacteristicUUIDs + [GnimuDevice.commandCharacteristicUUID],
+                        for: service)
+                case .gnimu:
+                    peripheral.discoverCharacteristics(
+                        deviceProtocol.notifyCharacteristicUUIDs
+                            + [DeviceProtocol.gnimuSchemaCharacteristicUUID,
+                               DeviceProtocol.gnimuDeviceInfoCharacteristicUUID],
+                        for: service)
+                }
+            case GnimuDevice.serviceUUID:
                 peripheral.discoverCharacteristics([GnimuDevice.configCharacteristicUUID], for: service)
+            case DeviceIdentity.serviceUUID:
+                peripheral.discoverCharacteristics(DeviceIdentity.characteristicUUIDs, for: service)
+            default:
+                break
             }
         }
     }
@@ -444,17 +513,26 @@ extension BLEManager: CBPeripheralDelegate {
                     didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         guard let chars = service.characteristics else { return }
         for char in chars {
-            switch char.uuid {
-            case deviceProtocol.notifyCharacteristicUUID:
+            if deviceProtocol.notifyCharacteristicUUIDs.contains(char.uuid) {
                 peripheral.setNotifyValue(true, for: char)
+                continue
+            }
+            switch char.uuid {
             case GnimuDevice.commandCharacteristicUUID:
                 commandCharacteristic = char
             case GnimuDevice.configCharacteristicUUID:
                 configCharacteristic = char
                 // Fixed at boot, so one read is enough.
                 peripheral.readValue(for: char)
+            case DeviceProtocol.gnimuSchemaCharacteristicUUID,
+                 DeviceProtocol.gnimuDeviceInfoCharacteristicUUID:
+                // Both describe the device as set up, and don't change while
+                // connected: one read each.
+                peripheral.readValue(for: char)
             default:
-                break
+                if DeviceIdentity.characteristicUUIDs.contains(char.uuid) {
+                    peripheral.readValue(for: char)
+                }
             }
         }
         updateDeviceControlSupport()
@@ -463,10 +541,18 @@ extension BLEManager: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral,
                     didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard let value = characteristic.value else { return }
-        if characteristic.uuid == GnimuDevice.configCharacteristicUUID {
+        let uuid = characteristic.uuid
+        if deviceProtocol.notifyCharacteristicUUIDs.contains(uuid) {
+            ingest(value, from: uuid)
+        } else if uuid == GnimuDevice.configCharacteristicUUID {
             deviceConfig = String(data: value, encoding: .utf8).flatMap { DeviceConfig(text: $0) }
+        } else if uuid == DeviceProtocol.gnimuSchemaCharacteristicUUID {
+            gnimuSchema = GnimuSchema.parse(value)
+        } else if uuid == DeviceProtocol.gnimuDeviceInfoCharacteristicUUID {
+            gnimuDeviceInfo = GnimuDeviceInfo.parse(value)
         } else {
-            ingest(value)
+            var identity = deviceIdentity
+            if identity.record(value, for: uuid) { deviceIdentity = identity }
         }
     }
 }
@@ -484,7 +570,7 @@ extension BLEManager {
     func startReplay(_ capture: ReplayCapture, speed: Double = 1, loop: Bool = false) {
         stopReplay()
         deviceProtocol = capture.deviceProtocol
-        decoder = capture.deviceProtocol.makeDecoder()
+        session = capture.deviceProtocol.makeSession()
         liveState = TelemetryState()
         telemetry = nil
         selectedDeviceName = capture.deviceName.map { "\($0) (replay)" } ?? "Replay"
@@ -501,7 +587,7 @@ extension BLEManager {
                     let due = start + .seconds(frame.t / pace)
                     if due > clock.now { try? await Task.sleep(until: due, clock: clock) }
                     guard let self, !Task.isCancelled else { return }
-                    self.ingest(frame.data)
+                    self.ingest(frame.data, from: capture.deviceProtocol.notifyCharacteristicUUIDs[0])
                 }
             } while loop && !Task.isCancelled
         }
@@ -514,9 +600,32 @@ extension BLEManager {
         stopRateTimer()
         telemetry = nil
         liveState = TelemetryState()
-        decoder.reset()
+        session.reset()
         selectedDeviceName = nil
         isConnected = false
+    }
+}
+
+// MARK: - Advertisement logging (debug builds only)
+
+extension BLEManager {
+    /// With `-logAdvertisements`, prints the first few advertisements of each
+    /// device exactly as CoreBluetooth delivered them: which keys each callback
+    /// carried, and whether the service and the name arrive together or apart.
+    /// For checking how a device's advertising packet and scan response reach
+    /// the app.
+    fileprivate func logAdvertisement(of peripheral: CBPeripheral, _ data: [String: Any], rssi: Int) {
+        guard CommandLine.arguments.contains("-logAdvertisements") else { return }
+        let count = loggedAdvertisements[peripheral.identifier, default: 0]
+        guard count < 8 else { return }
+        loggedAdvertisements[peripheral.identifier] = count + 1
+
+        let services = (data[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID])?.map(\.uuidString) ?? []
+        let name = data[CBAdvertisementDataLocalNameKey] as? String
+        let keys = data.keys.sorted().joined(separator: ", ")
+        print("Advert \(count + 1) of \(peripheral.identifier.uuidString.prefix(8)) rssi \(rssi): "
+              + "name \(name.map { "\"\($0)\"" } ?? "none"), services \(services.isEmpty ? "none" : services.joined(separator: " ")), "
+              + "cached name \(peripheral.name.map { "\"\($0)\"" } ?? "none"), keys [\(keys)]")
     }
 }
 #endif
