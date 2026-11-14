@@ -63,6 +63,12 @@
             ReferencedContainer = "container:GnimuMonitor.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
+      <CommandLineArguments>
+         <CommandLineArgument
+            argument = "-logAdvertisements"
+            isEnabled = "NO">
+         </CommandLineArgument>
+      </CommandLineArguments>
       <EnvironmentVariables>
          <EnvironmentVariable
             key = "GNIMU_FAKE_LOCATION"

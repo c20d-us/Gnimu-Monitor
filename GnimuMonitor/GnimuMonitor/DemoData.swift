@@ -34,6 +34,8 @@ import SwiftUI
 ///   -replay /path/to/capture.jsonl   play a capture back as if a device were
 ///                       connected (-replaySpeed 4 for faster, -replayLoop to
 ///                       repeat); see ReplayCapture
+///   -demoDevice can      with -demoMonitor, show a Gnimu-CAN with the car running
+///                       (can-waiting for one waiting for the car)
 ///   -startPanel vehicle  open on that panel (map, data, fixRate, gForce, level,
 ///                       capture, device or vehicle) instead of the map
 enum DemoLaunch {
@@ -88,6 +90,13 @@ enum DemoLaunch {
         return parts.count == 2 ? CGSize(width: parts[0], height: parts[1]) : nil
     }
 
+    /// Which sample device `-demoMonitor` shows, from `-demoDevice <name>`.
+    static var demoDevice: String? {
+        let args = CommandLine.arguments
+        guard let i = args.firstIndex(of: "-demoDevice"), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+
     /// The panel to open on, from `-startPanel <name>`.
     static var startPanel: MonitorPanel? {
         let args = CommandLine.arguments
@@ -127,7 +136,12 @@ enum DemoLaunch {
             ble.deviceNotice = DeviceNotice(command: .restart, deviceName: "Gnimu-RB 1120954722")
             return ble
         }
-        return isDemo ? .demo() : BLEManager()
+        guard isDemo else { return BLEManager() }
+        switch demoDevice {
+        case "can": return .demoCAN()
+        case "can-waiting": return .demoCAN(waiting: true)
+        default: return .demo()
+        }
     }
 }
 
@@ -163,6 +177,67 @@ extension TelemetryState {
     }()
 }
 
+extension BLEManager {
+    /// A manager that looks connected to a Gnimu-CAN, for previews and the demo
+    /// launch mode: the car running, or (`waiting`) the device up with no car
+    /// answering.
+    static func demoCAN(waiting: Bool = false) -> BLEManager {
+        let ble = BLEManager()
+        ble.selectedDeviceName = "Gnimu-CAN 1958745094"
+        ble.telemetry = waiting ? .demoCANWaiting : .demoCAN
+        ble.deviceIdentity = DeviceIdentity(manufacturer: "Gnimu", model: "Gnimu-CAN", serial: "1958745094",
+                                            firmware: "0.1.0", hardware: "XIAO ESP32C6, 12V carrier v1.0")
+        ble.gnimuSchema = GnimuSchema.parse(Data(
+            #"{"v":1,"d":"Gnimu-CAN","r":20,"fill":{"vehicle":3,"power":1}}"#.utf8))
+        ble.streamHealth = StreamHealthReading(
+            hz: 20, nominalHz: 20, arrivalJitterMs: 18.4, status: .onRate,
+            sessionFrames: 2_412, sessionLost: 0)
+        ble.channelRates = ["engine_speed": 14.2, "throttle_position": 9.6, "coolant_temp": 0, "vehicle_speed": 6.1]
+        ble.isConnected = true
+        return ble
+    }
+}
+
+extension TelemetryState {
+    /// A Gnimu-CAN with the car running, mid-run.
+    static let demoCAN: TelemetryState = {
+        var v = VehicleBlock()
+        v.engineSpeedRpm = 3250
+        v.throttlePercent = 42.7
+        v.acceleratorPedalPercent = 44.0
+        v.speedKmh = 88.3
+        v.gear = 3
+        v.coolantTempC = 88.5
+        v.oilTempC = 104.2
+        v.intakeAirTempC = 38.0
+        v.ambientTempC = 21.0
+        v.boostKpa = 55.3
+        v.oilPressureKpa = 310
+        v.fuelLevelPercent = 62
+        v.brakePressed = false
+        v.clutchPressed = false
+        v.steeringAngleDeg = 12.3
+        v.lateralG = 0.83
+        v.longitudinalG = 0.02
+        var state = TelemetryState()
+        state.apply(TelemetryUpdate(
+            header: DeviceHeader(deviceTimeMs: 734_120, sequence: 201, stateRaw: 2, capabilities: 12),
+            vehicle: v,
+            power: PowerBlock(supplyVolts: 13.82)), at: Date())
+        return state
+    }()
+
+    /// A Gnimu-CAN that is up but has no car answering: nothing valid but the supply.
+    static let demoCANWaiting: TelemetryState = {
+        var state = TelemetryState()
+        state.apply(TelemetryUpdate(
+            header: DeviceHeader(deviceTimeMs: 1_500, sequence: 0, stateRaw: 3, capabilities: 12),
+            vehicle: VehicleBlock(),
+            power: PowerBlock(supplyVolts: 12.48)), at: Date())
+        return state
+    }()
+}
+
 extension RaceBoxPacket {
     /// A stationary 3D fix with sixteen satellites.
     static let demo = RaceBoxPacket(
@@ -191,5 +266,17 @@ extension RaceBoxPacket {
 
 #Preview("iPhone", traits: .fixedLayout(width: 393, height: 852)) {
     MonitorView(ble: .demo())
+}
+
+#Preview("CAN iPad landscape", traits: .fixedLayout(width: 1180, height: 820)) {
+    MonitorView(ble: .demoCAN())
+}
+
+#Preview("CAN iPhone", traits: .fixedLayout(width: 393, height: 852)) {
+    MonitorView(ble: .demoCAN())
+}
+
+#Preview("CAN iPhone, waiting for the car", traits: .fixedLayout(width: 393, height: 852)) {
+    MonitorView(ble: .demoCAN(waiting: true))
 }
 #endif

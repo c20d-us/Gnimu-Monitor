@@ -120,6 +120,16 @@ class BLEManager: NSObject, ObservableObject {
     @Published var telemetry: TelemetryState?
     /// The same state, kept current on every frame between UI updates.
     private var liveState = TelemetryState()
+
+    /// How a Gnimu-protocol stream is doing, judged from its frame headers and
+    /// refreshed once a second. Empty for a protocol with no such header.
+    @Published var streamHealth: StreamHealthReading = .empty
+    /// Value changes per second by vehicle channel key (see ChannelChangeTracker).
+    @Published var channelRates: [String: Double] = [:]
+    /// Notifications this connection dropped as not valid frames.
+    @Published var rejectedNotifications = 0
+    private var streamTracker = StreamHealthTracker()
+    private var channelTracker = ChannelChangeTracker()
     @Published var centralStateDescription = "Initializing…"
 
     /// True once the connected device is found to offer the configuration
@@ -153,6 +163,9 @@ class BLEManager: NSObject, ObservableObject {
         // queue: .main means every delegate callback arrives on the main thread,
         // so @Published mutations are always on the main thread as SwiftUI requires.
         central = CBCentralManager(delegate: self, queue: .main)
+        #if DEBUG
+        if Self.logsAdvertisements { NSLog("Gnimu Monitor: advertisement logging is on") }
+        #endif
 
         // A finished capture is analysed straight away. The parse takes seconds,
         // and a report that's already waiting beats one the user has to
@@ -176,6 +189,9 @@ class BLEManager: NSObject, ObservableObject {
 
     func startScanning() {
         guard central.state == .poweredOn else { return }
+        #if DEBUG
+        if Self.logsAdvertisements { NSLog("Gnimu Monitor: scanning started") }
+        #endif
         discoveredDevices = []
         // Allow duplicates so the OS keeps re-delivering advertisements; that's
         // how we refresh `lastSeen` and detect when a device drops off.
@@ -300,6 +316,7 @@ class BLEManager: NSObject, ObservableObject {
         rateHistory = []
         fixRate = .empty
         rateTracker.reset()
+        resetStreamHealth()
         rateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.sampleRates()
         }
@@ -309,13 +326,28 @@ class BLEManager: NSObject, ObservableObject {
         rateTimer?.invalidate()
         rateTimer = nil
         rateTracker.reset()
+        resetStreamHealth()
         fixRate = .empty
         rateHistory = []
+    }
+
+    private func resetStreamHealth() {
+        streamTracker.reset()
+        channelTracker.reset()
+        streamHealth = .empty
+        channelRates = [:]
+        rejectedNotifications = 0
     }
 
     private func sampleRates() {
         let reading = rateTracker.evaluate()
         fixRate = reading
+
+        if liveState.header != nil {
+            streamHealth = streamTracker.evaluate(nominalHz: gnimuSchema?.rateHz)
+            channelRates = channelTracker.rates()
+            rejectedNotifications = session.rejectedNotifications
+        }
 
         rateHistory.append(FixRateSample(sv: telemetry?.gnss?.satellites ?? 0,
                                          hz: reading.hz,
@@ -342,6 +374,12 @@ class BLEManager: NSObject, ObservableObject {
             if let epoch = frame.gnssEpochMs { recordPacketArrival(itow: epoch) }
             recorder.record(frame: frame.raw)
             liveState.apply(frame.update, at: now)
+            if let header = frame.update.header {
+                streamTracker.record(deviceTimeMs: header.deviceTimeMs, sequence: header.sequence, at: now)
+            }
+            if let vehicle = frame.update.vehicle {
+                channelTracker.record(VehicleChannel.values(in: vehicle), at: now)
+            }
             received = true
         }
         if received, now.timeIntervalSince(lastUIUpdate) >= uiUpdateInterval {
@@ -609,13 +647,18 @@ extension BLEManager {
 // MARK: - Advertisement logging (debug builds only)
 
 extension BLEManager {
-    /// With `-logAdvertisements`, prints the first few advertisements of each
+    /// True when launched with `-logAdvertisements`.
+    fileprivate static var logsAdvertisements: Bool {
+        CommandLine.arguments.contains("-logAdvertisements")
+    }
+
+    /// With `-logAdvertisements`, logs the first few advertisements of each
     /// device exactly as CoreBluetooth delivered them: which keys each callback
     /// carried, and whether the service and the name arrive together or apart.
     /// For checking how a device's advertising packet and scan response reach
     /// the app.
     fileprivate func logAdvertisement(of peripheral: CBPeripheral, _ data: [String: Any], rssi: Int) {
-        guard CommandLine.arguments.contains("-logAdvertisements") else { return }
+        guard Self.logsAdvertisements else { return }
         let count = loggedAdvertisements[peripheral.identifier, default: 0]
         guard count < 8 else { return }
         loggedAdvertisements[peripheral.identifier] = count + 1
@@ -623,7 +666,7 @@ extension BLEManager {
         let services = (data[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID])?.map(\.uuidString) ?? []
         let name = data[CBAdvertisementDataLocalNameKey] as? String
         let keys = data.keys.sorted().joined(separator: ", ")
-        print("Advert \(count + 1) of \(peripheral.identifier.uuidString.prefix(8)) rssi \(rssi): "
+        NSLog("Gnimu Monitor: Advert \(count + 1) of \(peripheral.identifier.uuidString.prefix(8)) rssi \(rssi): "
               + "name \(name.map { "\"\($0)\"" } ?? "none"), services \(services.isEmpty ? "none" : services.joined(separator: " ")), "
               + "cached name \(peripheral.name.map { "\"\($0)\"" } ?? "none"), keys [\(keys)]")
     }

@@ -153,6 +153,14 @@ nonisolated protocol ProtocolSession {
 
     /// Drops buffered state, for a new connection.
     mutating func reset()
+
+    /// Notifications dropped as not being valid frames, this connection. Zero
+    /// for a protocol that doesn't count them.
+    var rejectedNotifications: Int { get }
+}
+
+extension ProtocolSession {
+    var rejectedNotifications: Int { 0 }
 }
 
 /// The Gnimu protocol's session. Each notification on the frame characteristic
@@ -175,6 +183,8 @@ nonisolated struct GnimuFrameSession: ProtocolSession {
     }
 
     mutating func reset() { rejected = 0 }
+
+    var rejectedNotifications: Int { rejected }
 }
 
 /// Reassembles RaceBox packets: finds the B5 62 sync, takes 88 bytes, and

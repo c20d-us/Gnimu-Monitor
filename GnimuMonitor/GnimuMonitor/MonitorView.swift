@@ -22,33 +22,57 @@ import UIKit
 
 /// A panel the connected screen can show. The tab strip in the wide and
 /// stacked layouts offers `stripTabs`; the swipeable deck pages through
-/// `deckPages`, which adds the map and the g-force meter.
+/// `deckPages`, which adds the map and the g-force meter. Which of them a device
+/// gets depends on what it provides (see `DeviceProfile`).
 enum MonitorPanel: String, Identifiable {
-    case map, data, fixRate, gForce, level, capture, device, vehicle
+    case map, data, fixRate, streamHealth, gForce, level, capture, device, vehicle
     var id: String { rawValue }
 
     var label: String {
         switch self {
-        case .map:     return "Map"
-        case .data:    return "Data"
-        case .fixRate: return "Fix Rate"
-        case .gForce:  return "G-Force"
-        case .level:   return "Level"
-        case .capture: return "Capture"
-        case .device:  return "Device"
-        case .vehicle: return "Vehicle"
+        case .map:          return "Map"
+        case .data:         return "Data"
+        case .fixRate:      return "Fix Rate"
+        case .streamHealth: return "Stream"
+        case .gForce:       return "G-Force"
+        case .level:        return "Level"
+        case .capture:      return "Capture"
+        case .device:       return "Device"
+        case .vehicle:      return "Vehicle"
         }
     }
 
-    /// Panels the tab strip offers. The Device panel exists only for devices
-    /// that offer configuration and commands.
-    static func stripTabs(hasDevice: Bool, hasVehicle: Bool = false) -> [MonitorPanel] {
-        (hasVehicle ? [.vehicle] : []) + [.data, .fixRate, .level, .capture] + (hasDevice ? [.device] : [])
+    /// Panels the tab strip offers. The map, or for a device with no position
+    /// the vehicle panel, fills the main area instead of being a tab. The
+    /// Device panel exists only for devices that offer configuration and
+    /// commands.
+    static func stripTabs(profile: DeviceProfile, hasDevice: Bool) -> [MonitorPanel] {
+        var tabs: [MonitorPanel] = []
+        // With a position, the map is the main area and the vehicle is a tab;
+        // without one, the vehicle panel is the main area.
+        if profile.hasVehicle && profile.mapIsPrimary { tabs.append(.vehicle) }
+        if profile.hasGnss || profile.hasImu { tabs.append(.data) }
+        if profile.hasReceiverClock { tabs.append(.fixRate) }
+        if profile.hasStreamHeader { tabs.append(.streamHealth) }
+        if profile.hasImu { tabs.append(.level) }
+        tabs.append(.capture)
+        if hasDevice { tabs.append(.device) }
+        return tabs
     }
 
     /// Pages of the swipeable deck, in order.
-    static func deckPages(hasDevice: Bool, hasVehicle: Bool = false) -> [MonitorPanel] {
-        (hasVehicle ? [.vehicle] : []) + [.map, .data, .fixRate, .gForce, .level, .capture] + (hasDevice ? [.device] : [])
+    static func deckPages(profile: DeviceProfile, hasDevice: Bool) -> [MonitorPanel] {
+        var pages: [MonitorPanel] = []
+        if profile.hasGnss { pages.append(.map) }
+        if profile.hasVehicle { pages.append(.vehicle) }
+        if profile.hasGnss || profile.hasImu { pages.append(.data) }
+        if profile.hasReceiverClock { pages.append(.fixRate) }
+        if profile.hasStreamHeader { pages.append(.streamHealth) }
+        if profile.hasImu { pages.append(.gForce) }
+        if profile.hasImu { pages.append(.level) }
+        pages.append(.capture)
+        if hasDevice { pages.append(.device) }
+        return pages
     }
 }
 
@@ -138,37 +162,58 @@ struct MonitorView: View {
 
     // MARK: - Shared pieces
 
+    /// What the connected device provides, which decides the panels offered.
+    private var profile: DeviceProfile {
+        DeviceProfile(telemetry: ble.telemetry, deviceProtocol: ble.deviceProtocol)
+    }
+
     private var stripTabs: [MonitorPanel] {
-        MonitorPanel.stripTabs(hasDevice: ble.supportsDeviceControl,
-                               hasVehicle: ble.telemetry?.vehicle != nil)
+        MonitorPanel.stripTabs(profile: profile, hasDevice: ble.supportsDeviceControl)
     }
 
     /// The panel the tab strip shows. The map and g-force pages exist only in
-    /// the deck, so a selection of either reads as Data when the strip is on
-    /// screen, without losing the deck's selection.
+    /// the deck, so a selection of either reads as the first tab (Data, for a
+    /// device with a position) when the strip is on screen, without losing the
+    /// deck's selection.
     private var stripSelection: MonitorPanel {
-        stripTabs.contains(selected) ? selected : .data
+        stripTabs.contains(selected) ? selected : (stripTabs.first ?? .capture)
     }
 
+    @ViewBuilder
     private var glanceBox: some View {
-        GlanceBox(telemetry: ble.telemetry, fixRate: ble.fixRate)
-            .padding(12)
+        Group {
+            if profile.hasGnss || !profile.hasVehicle {
+                GlanceBox(telemetry: ble.telemetry, fixRate: ble.fixRate)
+            } else {
+                VehicleGlanceBox(telemetry: ble.telemetry, streamHealth: ble.streamHealth,
+                                 schema: ble.gnimuSchema)
+            }
+        }
+        .padding(12)
     }
 
+    /// The main area beside or above the panels: the map for a device with a
+    /// position, otherwise the vehicle panel.
+    @ViewBuilder
     private var mapPanel: some View {
-        MapPanel(telemetry: ble.telemetry, state: mapState)
+        if profile.mapIsPrimary {
+            MapPanel(telemetry: ble.telemetry, state: mapState)
+        } else {
+            VehiclePanel(ble: ble)
+        }
     }
 
     @ViewBuilder
     private var panelContent: some View {
         switch stripSelection {
         case .fixRate: FixRatePanel(ble: ble)
+        case .streamHealth: StreamHealthPanel(ble: ble)
         case .level:   LevelPanel(telemetry: ble.telemetry)
         case .capture: RecordPanel(ble: ble, recorder: ble.recorder,
                                    analysis: ble.analysisRunner)
         case .device:  DevicePanel(ble: ble, recorder: ble.recorder)
         case .vehicle: VehiclePanel(ble: ble)
-        default:       DataPanel(telemetry: ble.telemetry)
+        case .map, .gForce, .data: DataPanel(telemetry: ble.telemetry)
         }
     }
 
@@ -287,24 +332,54 @@ private struct CompactMonitor: View {
     @ObservedObject var mapState: MapState
     @Binding var selected: MonitorPanel
 
+    private var profile: DeviceProfile {
+        DeviceProfile(telemetry: ble.telemetry, deviceProtocol: ble.deviceProtocol)
+    }
+
+    private var pages: [MonitorPanel] {
+        MonitorPanel.deckPages(profile: profile, hasDevice: ble.supportsDeviceControl)
+    }
+
+    /// The page shown. A selection the device has no page for (the map, on a
+    /// device with no position) reads as the first page that it does have.
+    private var deckSelection: Binding<MonitorPanel> {
+        Binding(get: { pages.contains(selected) ? selected : (pages.first ?? .capture) },
+                set: { selected = $0 })
+    }
+
+    @ViewBuilder
+    private func page(_ panel: MonitorPanel) -> some View {
+        switch panel {
+        case .map:          MapPage(telemetry: ble.telemetry, mapState: mapState)
+        case .data:         DataPanel(telemetry: ble.telemetry)
+        case .vehicle:      TitledPage("Vehicle") { VehiclePanel(ble: ble) }
+        case .fixRate:      TitledPage("Fix Rate") { FixRatePanel(ble: ble) }
+        case .streamHealth: TitledPage("Stream Health") { StreamHealthPanel(ble: ble) }
+        case .gForce:       TitledPage("G-Force") { GForcePanel(telemetry: ble.telemetry) }
+        case .level:        TitledPage("Level") { LevelPanel(telemetry: ble.telemetry) }
+        case .capture:
+            TitledPage("Capture") {
+                RecordPanel(ble: ble, recorder: ble.recorder, analysis: ble.analysisRunner)
+            }
+        case .device:       DevicePanel(ble: ble, recorder: ble.recorder)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            GlanceBox(telemetry: ble.telemetry, fixRate: ble.fixRate)
-                .padding(12)
-
-            TabView(selection: $selected) {
-                if ble.telemetry?.vehicle != nil {
-                    TitledPage("Vehicle") { VehiclePanel(ble: ble) }.tag(MonitorPanel.vehicle)
+            Group {
+                if profile.hasGnss || !profile.hasVehicle {
+                    GlanceBox(telemetry: ble.telemetry, fixRate: ble.fixRate)
+                } else {
+                    VehicleGlanceBox(telemetry: ble.telemetry, streamHealth: ble.streamHealth,
+                                 schema: ble.gnimuSchema)
                 }
-                MapPage(telemetry: ble.telemetry, mapState: mapState).tag(MonitorPanel.map)
-                DataPanel(telemetry: ble.telemetry).tag(MonitorPanel.data)
-                TitledPage("Fix Rate") { FixRatePanel(ble: ble) }.tag(MonitorPanel.fixRate)
-                TitledPage("G-Force") { GForcePanel(telemetry: ble.telemetry) }.tag(MonitorPanel.gForce)
-                TitledPage("Level") { LevelPanel(telemetry: ble.telemetry) }.tag(MonitorPanel.level)
-                TitledPage("Capture") { RecordPanel(ble: ble, recorder: ble.recorder, analysis: ble.analysisRunner) }
-                    .tag(MonitorPanel.capture)
-                if ble.supportsDeviceControl {
-                    DevicePanel(ble: ble, recorder: ble.recorder).tag(MonitorPanel.device)
+            }
+            .padding(12)
+
+            TabView(selection: deckSelection) {
+                ForEach(pages) { panel in
+                    page(panel).tag(panel)
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .always))
