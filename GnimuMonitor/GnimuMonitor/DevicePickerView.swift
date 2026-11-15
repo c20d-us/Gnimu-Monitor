@@ -167,8 +167,10 @@ struct DevicePickerView: View {
                             .foregroundStyle(.secondary)
                         Text(device.name)
                             .fontWeight(.semibold)
-                        ProtocolChip(deviceProtocol: device.deviceProtocol)
                         Spacer()
+                        // Right-aligned beside the signal bars, so the chips
+                        // line up whatever the length of the name.
+                        ProtocolChip(deviceProtocol: device.deviceProtocol)
                         SignalBars(rssi: device.rssi)
                     }
                     .foregroundStyle(device.isStale ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))

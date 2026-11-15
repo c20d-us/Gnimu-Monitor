@@ -272,7 +272,11 @@ extension HTMLReportRenderer {
             df.dateStyle = .medium; df.timeStyle = .medium
             subParts.append(df.string(from: started))
         }
-        if let device = a.header.deviceName { subParts.append(esc(device)) }
+        if let device = a.header.deviceName {
+            subParts.append("\(esc(device)) (\(a.protocolLabel))")
+        } else {
+            subParts.append("(\(a.protocolLabel))")
+        }
         subParts.append(byteText(a.fileSize))
         out += "<div class=\"sub\">\(subParts.joined(separator: " · "))</div></header>"
 
@@ -281,7 +285,7 @@ extension HTMLReportRenderer {
         out += summaryCards(a)
         out += cadenceSection(a)
         out += transportSection(a)
-        out += gnssSection(a)
+        if a.hasGnss { out += gnssSection(a) }
         out += checksSection(a)
         out += gapsSection(a)
         out += trackSection(a)
@@ -319,8 +323,8 @@ extension HTMLReportRenderer {
         }
 
         detail.append(s.missedFixes == 0
-            ? "No fixes missed across \(s.expectedPackets.formatted()) expected."
-            : "\(s.missedFixes.formatted()) of \(s.expectedPackets.formatted()) fixes missed "
+            ? "No \(a.unit.plural) missed across \(s.expectedPackets.formatted()) expected."
+            : "\(s.missedFixes.formatted()) of \(s.expectedPackets.formatted()) \(a.unit.plural) missed "
               + String(format: "(%.2f%%).", s.errorRate))
         if s.interruptions > 0 {
             detail.append("\(s.interruptions) stream interruption\(s.interruptions == 1 ? "" : "s").")
@@ -362,11 +366,11 @@ extension HTMLReportRenderer {
         }
 
         var cards = ""
-        cards += card(s.packetsReceived.formatted(), "Packets received",
+        cards += card(s.packetsReceived.formatted(), a.isGnimu ? "Frames received" : "Packets received",
                       "of \(s.expectedPackets.formatted()) expected")
         cards += card(String(format: "%.2f%%", s.errorRate), "Error rate",
                       "\(s.missedFixes.formatted()) missed")
-        cards += card(duration(s.longestCleanRun), "Longest clean run", "no missed or late fixes")
+        cards += card(duration(s.longestCleanRun), "Longest clean run", "no missed or late \(a.unit.plural)")
         cards += card(s.nominalHz.map { String(format: "%g Hz", $0) } ?? "—", "Nominal rate",
                       String(format: "%.2f Hz mean", s.meanHz))
         cards += card(duration(s.deviceDuration), "Duration", "device clock")
@@ -379,13 +383,18 @@ extension HTMLReportRenderer {
     // MARK: Cadence
 
     private static func cadenceSection(_ a: CaptureAnalysis) -> String {
-        var out = "<section><h2>Fix cadence</h2>"
-        out += chart(id: "fixRate", title: "Fix rate",
+        let unit = a.unit
+        var out = "<section><h2>\(a.isGnimu ? "Frame cadence" : "Fix cadence")</h2>"
+        if a.summary.framesWithoutEpoch > 0 {
+            out += "<p class=\"note\">\(a.summary.framesWithoutEpoch.formatted()) frames were sent before the receiver had resolved UTC (a cold start). "
+            out += "They carry no GNSS epoch, so they are left out of the cadence figures here; the frame sequence check still covers them.</p>"
+        }
+        out += chart(id: "fixRate", title: a.isGnimu ? "Frame rate" : "Fix rate",
                      caption: "Shaded band is the min–max within each bucket; the line is the mean.")
-        out += chart(id: "missed", title: "Missed fixes",
-                     caption: "Where fixes went missing. Clustering matters more than the total — an even scatter and a single burst mean very different things.")
+        out += chart(id: "missed", title: "Missed \(unit.plural)",
+                     caption: "Where \(unit.plural) went missing. Clustering matters more than the total — an even scatter and a single burst mean very different things.")
         out += chart(id: "histogram", title: "Interval distribution",
-                     caption: "iTOW deltas. A healthy device is one spike at nominal; spikes at whole multiples are discrete drops, and a smear means the device is bogging.")
+                     caption: "\(a.isGnimu ? "Device time" : "iTOW") deltas. A healthy device is one spike at nominal; spikes at whole multiples are discrete drops, and a smear means the device is bogging.")
         out += "</section>"
         return out
     }
@@ -395,8 +404,9 @@ extension HTMLReportRenderer {
     private static func transportSection(_ a: CaptureAnalysis) -> String {
         let t = a.transport
         var out = "<section id=\"sec-transport\"><h2>Transport vs. device</h2>"
-        out += "<p class=\"note\">Every packet carries two clocks — the device's own iTOW and the host's arrival time. "
-        out += "Comparing them separates fixes the device never produced from fixes it produced but couldn't deliver.</p>"
+        let unit = a.unit
+        out += "<p class=\"note\">Every \(a.isGnimu ? "frame" : "packet") carries two clocks — the device's own \(a.isGnimu ? "time" : "iTOW") and the host's arrival time. "
+        out += "Comparing them separates \(unit.plural) the device never produced from \(unit.plural) it produced but couldn't deliver.</p>"
 
         if !t.attribution.isEmpty {
             out += "<div class=\"scroll\"><table><tr><th>Gap attribution</th><th>Count</th></tr>"
@@ -418,8 +428,8 @@ extension HTMLReportRenderer {
         out += row("Host/device clock ratio", t.clockRatio.map { String(format: "%.6f", $0) } ?? "—")
         out += row("Clock drift", t.clockDriftPPM.map { String(format: "%.0f ppm", $0) } ?? "—")
         out += row("Max divergence", String(format: "%.0f ms", t.maxDriftMs))
-        out += row("Mean burst size", String(format: "%.1f packets", t.meanBurstSize))
-        out += row("Largest burst", "\(t.maxBurstSize) packets")
+        out += row("Mean burst size", String(format: "%.1f \(a.isGnimu ? "frames" : "packets")", t.meanBurstSize))
+        out += row("Largest burst", "\(t.maxBurstSize) \(a.isGnimu ? "frames" : "packets")")
         out += row("Burst spacing median", t.burstSpacingMs.isEmpty ? "—"
                    : String(format: "%.1f ms", t.burstSpacingMs.median))
         out += "</table></div></section>"
@@ -553,6 +563,7 @@ extension HTMLReportRenderer {
         let h = a.header
         var out = "<section><h2>Session</h2><div class=\"scroll\"><table>"
         out += row("Device", h.deviceName ?? "—")
+        out += row("Protocol", a.protocolLabel)
         out += row("Session id", h.sessionId ?? "—")
         out += row("App", dash([h.appVersion, h.appBuild].compactMap { $0 }
             .filter { !$0.isEmpty }.joined(separator: " build ")))

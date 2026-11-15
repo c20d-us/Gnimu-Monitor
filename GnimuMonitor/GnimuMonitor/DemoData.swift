@@ -183,12 +183,15 @@ extension BLEManager {
     /// answering.
     static func demoCAN(waiting: Bool = false) -> BLEManager {
         let ble = BLEManager()
+        ble.presentAs(.gnimu)
         ble.selectedDeviceName = "Gnimu-CAN 1958745094"
         ble.telemetry = waiting ? .demoCANWaiting : .demoCAN
         ble.deviceIdentity = DeviceIdentity(manufacturer: "Gnimu", model: "Gnimu-CAN", serial: "1958745094",
                                             firmware: "0.1.0", hardware: "XIAO ESP32C6, 12V carrier v1.0")
         ble.gnimuSchema = GnimuSchema.parse(Data(
             #"{"v":1,"d":"Gnimu-CAN","r":20,"fill":{"vehicle":3,"power":1}}"#.utf8))
+        ble.gnimuDeviceInfo = GnimuDeviceInfo.parse(Data(
+            #"{"v":1,"build":{"rev":"9c1e4a7","utc":"2026-11-10T18:22:05Z","target":"esp32c6"},"cfg":{"can_bitrate":500000,"obd_polling":true,"frame_rate_hz":20}}"#.utf8))
         ble.streamHealth = StreamHealthReading(
             hz: 20, nominalHz: 20, arrivalJitterMs: 18.4, status: .onRate,
             sessionFrames: 2_412, sessionLost: 0)

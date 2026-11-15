@@ -83,7 +83,8 @@ struct RecordPanel: View {
                 recorder.start(deviceName: ble.selectedDeviceName ?? ble.selectedPeripheral?.name,
                                peripheralID: ble.selectedPeripheral?.identifier.uuidString,
                                nominalHz: ble.captureNominalHz,
-                               deviceProtocol: ble.deviceProtocol)
+                               deviceProtocol: ble.deviceProtocol,
+                               deviceInfo: ble.capturedDeviceInfo)
             }
         } label: {
             ZStack {

@@ -228,6 +228,45 @@ struct GnimuSessionTests {
         #expect(out.first?.update.header?.sequence == 7)
     }
 
+    private func gnssFrame(deviceTime: Int32, utcMs: Double?) -> Data {
+        var b = GnimuFrameBuilder()
+        b.deviceTimeMs = deviceTime
+        b.capabilities = 1   // GNSS
+        b.set(.latitude, 10)
+        if let utcMs { b.set(.utcTimestamp, utcMs) }
+        return Data(b.build())
+    }
+
+    @Test func gnssEpochIsTheReceiversUtcTimestamp() {
+        var session = GnimuFrameSession()
+        let utc = 1_780_000_000_050.4
+        let out = session.receive(gnssFrame(deviceTime: 10_000, utcMs: utc), from: frameUUID)
+        #expect(out.first?.gnssEpochMs == UInt32(truncatingIfNeeded: Int64(utc.rounded())))
+    }
+
+    @Test func epochStepsFollowTheReceiverNotTheSendTime() {
+        // The device stamps frames as it sends them, so one can go out 10 ms
+        // late; the receiver's timestamp is unaffected.
+        var session = GnimuFrameSession()
+        let a = session.receive(gnssFrame(deviceTime: 10_000, utcMs: 1_780_000_000_000), from: frameUUID)
+        let b = session.receive(gnssFrame(deviceTime: 10_060, utcMs: 1_780_000_000_050), from: frameUUID)
+        let epochs = [a, b].compactMap { $0.first?.gnssEpochMs }
+        #expect(epochs.count == 2)
+        #expect(Int64(epochs[1]) - Int64(epochs[0]) == 50)
+    }
+
+    @Test func framesRepeatingASolutionShareAnEpoch() {
+        var session = GnimuFrameSession()
+        let a = session.receive(gnssFrame(deviceTime: 10_000, utcMs: 1_780_000_000_000), from: frameUUID)
+        let b = session.receive(gnssFrame(deviceTime: 10_040, utcMs: 1_780_000_000_000), from: frameUUID)
+        #expect(a.first?.gnssEpochMs == b.first?.gnssEpochMs)
+    }
+
+    @Test func noEpochWithoutAValidTimestamp() {
+        var session = GnimuFrameSession()
+        #expect(session.receive(gnssFrame(deviceTime: 10_000, utcMs: nil), from: frameUUID).first?.gnssEpochMs == nil)
+    }
+
     @Test(arguments: [0, 20, 88, 139, 141, 182])
     func aNotificationOfAnyOtherLengthIsDropped(length: Int) {
         var session = GnimuFrameSession()

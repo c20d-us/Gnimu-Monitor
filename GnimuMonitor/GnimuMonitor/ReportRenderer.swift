@@ -50,9 +50,12 @@ nonisolated struct MarkdownReportRenderer: ReportRenderer {
         line()
         line("| | |")
         line("|---|---|")
-        row("Packets received", s.packetsReceived.formatted())
+        row(a.isGnimu ? "Frames received" : "Packets received", s.packetsReceived.formatted())
         row("Expected", s.expectedPackets.formatted())
-        row("Missed fixes", s.missedFixes.formatted())
+        if s.framesWithoutEpoch > 0 {
+            row("Frames before UTC resolved", s.framesWithoutEpoch.formatted())
+        }
+        row(a.isGnimu ? "Missed frames" : "Missed fixes", s.missedFixes.formatted())
         row("Error rate", String(format: "%.2f%%", s.errorRate))
         row("Nominal rate", s.nominalHz.map { String(format: "%g Hz", $0) } ?? "—")
         row("Mean rate", String(format: "%.2f Hz", s.meanHz))
@@ -89,24 +92,26 @@ nonisolated struct MarkdownReportRenderer: ReportRenderer {
             line()
         }
 
-        line("## GNSS quality")
-        line()
-        line("| | |")
-        line("|---|---|")
-        let g = a.gnss
-        row("Satellites", String(format: "%.1f mean (%.0f–%.0f)", g.numSV.mean, g.numSV.min, g.numSV.max))
-        row("pDOP", String(format: "%.2f mean, %.2f p95", g.pDOP.mean, g.pDOP.quantile(0.95)))
-        row("Horizontal accuracy", String(format: "%.2f m mean, %.2f m p95", g.hAcc.mean, g.hAcc.quantile(0.95)))
-        if let sv = g.meanSVAtGaps {
-            row("Satellites at gaps", String(format: "%.1f (vs %.1f overall)", sv, g.numSV.mean))
+        if a.hasGnss {
+            line("## GNSS quality")
+            line()
+            line("| | |")
+            line("|---|---|")
+            let g = a.gnss
+            row("Satellites", String(format: "%.1f mean (%.0f–%.0f)", g.numSV.mean, g.numSV.min, g.numSV.max))
+            row("pDOP", String(format: "%.2f mean, %.2f p95", g.pDOP.mean, g.pDOP.quantile(0.95)))
+            row("Horizontal accuracy", String(format: "%.2f m mean, %.2f m p95", g.hAcc.mean, g.hAcc.quantile(0.95)))
+            if let sv = g.meanSVAtGaps {
+                row("Satellites at gaps", String(format: "%.1f (vs %.1f overall)", sv, g.numSV.mean))
+            }
+            if let pdop = g.meanPDOPAtGaps {
+                row("pDOP at gaps", String(format: "%.2f (vs %.2f overall)", pdop, g.pDOP.mean))
+            }
+            row("Distance", String(format: "%.2f km", g.distanceMetres / 1000))
+            row("Max speed", String(format: "%.1f km/h", g.maxSpeedKmh))
+            if let b0 = g.batteryStart, let b1 = g.batteryEnd { row("Battery", "\(b0)% → \(b1)%") }
+            line()
         }
-        if let pdop = g.meanPDOPAtGaps {
-            row("pDOP at gaps", String(format: "%.2f (vs %.2f overall)", pdop, g.pDOP.mean))
-        }
-        row("Distance", String(format: "%.2f km", g.distanceMetres / 1000))
-        row("Max speed", String(format: "%.1f km/h", g.maxSpeedKmh))
-        if let b0 = g.batteryStart, let b1 = g.batteryEnd { row("Battery", "\(b0)% → \(b1)%") }
-        line()
 
         line("## Consistency checks")
         line()
@@ -132,7 +137,8 @@ nonisolated struct MarkdownReportRenderer: ReportRenderer {
         line()
         line("| | |")
         line("|---|---|")
-        row("Device", a.header.deviceName ?? "—")
+        row("Device", [a.header.deviceName, "(\(a.protocolLabel))"]
+            .compactMap { $0 }.joined(separator: " "))
         row("App", dash([a.header.appVersion, a.header.appBuild]
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " build ")))
         row("Host", dash([a.header.hostModel, a.header.hostSystemVersion]

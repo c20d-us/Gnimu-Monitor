@@ -18,7 +18,7 @@ import CoreLocation
 import Foundation
 
 /// User-selectable speed unit, persisted via @AppStorage("speedUnit").
-enum SpeedUnit: String, CaseIterable {
+nonisolated enum SpeedUnit: String, CaseIterable {
     case kmh
     case mph
 

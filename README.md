@@ -57,7 +57,7 @@ All three commands are disabled while a capture is recording, since each would d
 
 ## Capture and analysis
 
-The **Capture** panel records the packet stream from the connected device. Start and stop with the red button; while recording it shows the elapsed time, the packet count and the file size. The recording keeps each frame exactly as it arrived, with the time it arrived, plus a header describing the session, so a capture can be analyzed later or on another machine.
+The **Capture** panel records the packet stream from the connected device. Start and stop with the red button; while recording it shows the elapsed time, the packet count and the file size. The recording keeps each frame exactly as it arrived, with the time it arrived, plus a header describing the session, so a capture can be analyzed later or on another machine. The file format is documented in [docs/capture-format.md](docs/capture-format.md); captures made by earlier versions of the app can't be read and need recording again.
 
 Captures are saved to iCloud Drive in a *Gnimu Monitor* folder when iCloud is available, and on the device (visible in the Files app on iPhone and iPad) when it isn't. The panel says where a capture went and why, if iCloud was unavailable. **Share Capture** sends the file anywhere else.
 

@@ -46,18 +46,21 @@ struct DataPanel: View {
                     }
 
                     section("IMU") {
-                        row("Lateral Acceleration", text(imu?.lateralG, "%.3f g"))
-                        row("Longitudinal Acceleration", text(imu?.longitudinalG, "%.3f g"))
-                        row("Vertical Acceleration", text(imu?.verticalG, "%.3f g"))
-                        row("Roll Rate", text(imu?.rollRate, "%.2f °/s"))
-                        row("Pitch Rate", text(imu?.pitchRate, "%.2f °/s"))
-                        row("Yaw Rate", text(imu?.yawRate, "%.2f °/s"))
+                        row("Lateral Acceleration", text(imu?.lateralG, "%.2f g"))
+                        row("Longitudinal Acceleration", text(imu?.longitudinalG, "%.2f g"))
+                        row("Vertical Acceleration", text(imu?.verticalG, "%.2f g"))
+                        row("Roll Rate", text(imu?.rollRate, "%.1f °/s"))
+                        row("Pitch Rate", text(imu?.pitchRate, "%.1f °/s"))
+                        row("Yaw Rate", text(imu?.yawRate, "%.1f °/s"))
                     }
 
                     section("Time") {
                         row("UTC Date", g?.date?.text ?? "invalid")
                         row("UTC Time", g?.time?.text ?? "invalid")
-                        row("GNSS Time of Week", g?.timeOfWeekMs.map { "\($0) ms" } ?? "—")
+                        // Only receivers that report it (RaceBox) have a row.
+                        if let timeOfWeek = g?.timeOfWeekMs {
+                            row("GNSS Time of Week", "\(timeOfWeek) ms")
+                        }
                         row("Time Accuracy", g?.timeAccuracyNs.map { "\($0) ns" } ?? "—")
                     }
                 }

@@ -44,8 +44,8 @@ enum MonitorPanel: String, Identifiable {
 
     /// Panels the tab strip offers. The map, or for a device with no position
     /// the vehicle panel, fills the main area instead of being a tab. The
-    /// Device panel exists only for devices that offer configuration and
-    /// commands.
+    /// Device panel exists for a device that offers configuration and commands,
+    /// or that is a Gnimu-protocol device, which describes itself.
     static func stripTabs(profile: DeviceProfile, hasDevice: Bool) -> [MonitorPanel] {
         var tabs: [MonitorPanel] = []
         // With a position, the map is the main area and the vehicle is a tab;
@@ -55,8 +55,8 @@ enum MonitorPanel: String, Identifiable {
         if profile.hasReceiverClock { tabs.append(.fixRate) }
         if profile.hasStreamHeader { tabs.append(.streamHealth) }
         if profile.hasImu { tabs.append(.level) }
-        tabs.append(.capture)
         if hasDevice { tabs.append(.device) }
+        tabs.append(.capture)   // always last
         return tabs
     }
 
@@ -70,8 +70,8 @@ enum MonitorPanel: String, Identifiable {
         if profile.hasStreamHeader { pages.append(.streamHealth) }
         if profile.hasImu { pages.append(.gForce) }
         if profile.hasImu { pages.append(.level) }
-        pages.append(.capture)
         if hasDevice { pages.append(.device) }
+        pages.append(.capture)   // always last
         return pages
     }
 }
@@ -168,7 +168,7 @@ struct MonitorView: View {
     }
 
     private var stripTabs: [MonitorPanel] {
-        MonitorPanel.stripTabs(profile: profile, hasDevice: ble.supportsDeviceControl)
+        MonitorPanel.stripTabs(profile: profile, hasDevice: ble.hasDevicePanel)
     }
 
     /// The panel the tab strip shows. The map and g-force pages exist only in
@@ -211,7 +211,7 @@ struct MonitorView: View {
         case .level:   LevelPanel(telemetry: ble.telemetry)
         case .capture: RecordPanel(ble: ble, recorder: ble.recorder,
                                    analysis: ble.analysisRunner)
-        case .device:  DevicePanel(ble: ble, recorder: ble.recorder)
+        case .device:  DeviceTab(ble: ble)
         case .vehicle: VehiclePanel(ble: ble)
         case .map, .gForce, .data: DataPanel(telemetry: ble.telemetry)
         }
@@ -337,7 +337,7 @@ private struct CompactMonitor: View {
     }
 
     private var pages: [MonitorPanel] {
-        MonitorPanel.deckPages(profile: profile, hasDevice: ble.supportsDeviceControl)
+        MonitorPanel.deckPages(profile: profile, hasDevice: ble.hasDevicePanel)
     }
 
     /// The page shown. A selection the device has no page for (the map, on a
@@ -361,7 +361,7 @@ private struct CompactMonitor: View {
             TitledPage("Capture") {
                 RecordPanel(ble: ble, recorder: ble.recorder, analysis: ble.analysisRunner)
             }
-        case .device:       DevicePanel(ble: ble, recorder: ble.recorder)
+        case .device:       DeviceTab(ble: ble)
         }
     }
 

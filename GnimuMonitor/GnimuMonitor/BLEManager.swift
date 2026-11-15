@@ -143,6 +143,15 @@ class BLEManager: NSObject, ObservableObject {
     @Published var deviceIdentity = DeviceIdentity()
     @Published var gnimuSchema: GnimuSchema?
     @Published var gnimuDeviceInfo: GnimuDeviceInfo?
+    /// The two characteristics' JSON as the device sent it, for the capture header.
+    private(set) var gnimuSchemaJSON: Data?
+    private(set) var gnimuDeviceInfoJSON: Data?
+
+    /// What a capture started now records about the device.
+    var capturedDeviceInfo: CapturedDeviceInfo {
+        CapturedDeviceInfo(identity: deviceIdentity, schemaJSON: gnimuSchemaJSON,
+                           infoJSON: gnimuDeviceInfoJSON)
+    }
     /// The device's configuration text, parsed. Nil until the read returns.
     @Published var deviceConfig: DeviceConfig?
 
@@ -160,6 +169,8 @@ class BLEManager: NSObject, ObservableObject {
 
     override init() {
         super.init()
+        AppQuitGate.recorder = recorder
+        recorder.rejectedNotifications = { [weak self] in self?.session.rejectedNotifications ?? 0 }
         // queue: .main means every delegate callback arrives on the main thread,
         // so @Published mutations are always on the main thread as SwiftUI requires.
         central = CBCentralManager(delegate: self, queue: .main)
@@ -277,6 +288,21 @@ class BLEManager: NSObject, ObservableObject {
         deviceIdentity = DeviceIdentity()
         gnimuSchema = nil
         gnimuDeviceInfo = nil
+        gnimuSchemaJSON = nil
+        gnimuDeviceInfoJSON = nil
+    }
+
+    /// Makes the manager read as connected to a device of this protocol, for
+    /// the demo mode, which has no device to find it out from.
+    func presentAs(_ deviceProtocol: DeviceProtocol) {
+        self.deviceProtocol = deviceProtocol
+    }
+
+    /// Whether the Device tab is offered: a RaceBox-mode device that takes
+    /// commands, or any connected Gnimu-protocol device, which describes itself
+    /// even though it can't be commanded yet.
+    var hasDevicePanel: Bool {
+        supportsDeviceControl || (isConnected && deviceProtocol == .gnimu)
     }
 
     private func updateDeviceControlSupport() {
@@ -372,7 +398,9 @@ class BLEManager: NSObject, ObservableObject {
             // Record every frame for rate tracking and capture (not just
             // those that survive the UI throttle below).
             if let epoch = frame.gnssEpochMs { recordPacketArrival(itow: epoch) }
-            recorder.record(frame: frame.raw)
+            if let stream = deviceProtocol.captureStreamName(for: characteristic) {
+                recorder.record(frame: frame.raw, stream: stream)
+            }
             liveState.apply(frame.update, at: now)
             if let header = frame.update.header {
                 streamTracker.record(deviceTimeMs: header.deviceTimeMs, sequence: header.sequence, at: now)
@@ -428,10 +456,6 @@ extension BLEManager: CBCentralManagerDelegate {
             discoveredDevices[i].rssi = rssi
             discoveredDevices[i].lastSeen = Date()
             discoveredDevices[i].isStale = false
-            if let advertisedName, advertisedName != discoveredDevices[i].advertisedName {
-                discoveredDevices[i].advertisedName = advertisedName
-                sortDiscoveredDevices()
-            }
             // A guess from the name gives way to an advertisement that carries
             // a service; a confirmed label is never revisited.
             if let services = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] {
@@ -439,13 +463,30 @@ extension BLEManager: CBCentralManagerDelegate {
                     deviceProtocol: discoveredDevices[i].deviceProtocol,
                     isConfirmed: discoveredDevices[i].isProtocolConfirmed)
                     .refined(byAdvertisedServices: services)
+                #if DEBUG
+                if label.deviceProtocol != discoveredDevices[i].deviceProtocol {
+                    logLabel("relabelled", peripheral, name: advertisedName ?? peripheral.name,
+                             services: services, label: label)
+                }
+                #endif
                 discoveredDevices[i].deviceProtocol = label.deviceProtocol
                 discoveredDevices[i].isProtocolConfirmed = label.isConfirmed
+            }
+            // Last, because sorting moves every device: `i` is only this
+            // device's index until the list is reordered. Done earlier, the
+            // label above went to whichever device had taken its place.
+            if let advertisedName, advertisedName != discoveredDevices[i].advertisedName {
+                discoveredDevices[i].advertisedName = advertisedName
+                sortDiscoveredDevices()
             }
         } else {
             let services = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
             guard let found = DeviceProtocol.identify(name: advertisedName ?? peripheral.name,
                                                       advertisedServices: services) else { return }
+            #if DEBUG
+            logLabel("added", peripheral, name: advertisedName ?? peripheral.name,
+                     services: services, label: found)
+            #endif
             discoveredDevices.append(DiscoveredDevice(peripheral: peripheral, rssi: rssi, lastSeen: Date(),
                                                       deviceProtocol: found.deviceProtocol,
                                                       isProtocolConfirmed: found.isConfirmed,
@@ -586,8 +627,10 @@ extension BLEManager: CBPeripheralDelegate {
             deviceConfig = String(data: value, encoding: .utf8).flatMap { DeviceConfig(text: $0) }
         } else if uuid == DeviceProtocol.gnimuSchemaCharacteristicUUID {
             gnimuSchema = GnimuSchema.parse(value)
+            gnimuSchemaJSON = value
         } else if uuid == DeviceProtocol.gnimuDeviceInfoCharacteristicUUID {
             gnimuDeviceInfo = GnimuDeviceInfo.parse(value)
+            gnimuDeviceInfoJSON = value
         } else {
             var identity = deviceIdentity
             if identity.record(value, for: uuid) { deviceIdentity = identity }
@@ -611,6 +654,11 @@ extension BLEManager {
         session = capture.deviceProtocol.makeSession()
         liveState = TelemetryState()
         telemetry = nil
+        deviceIdentity = capture.identity
+        gnimuSchemaJSON = capture.schemaJSON
+        gnimuDeviceInfoJSON = capture.infoJSON
+        gnimuSchema = capture.schemaJSON.flatMap { GnimuSchema.parse($0) }
+        gnimuDeviceInfo = capture.infoJSON.flatMap { GnimuDeviceInfo.parse($0) }
         selectedDeviceName = capture.deviceName.map { "\($0) (replay)" } ?? "Replay"
         isConnecting = false
         isConnected = true
@@ -625,7 +673,9 @@ extension BLEManager {
                     let due = start + .seconds(frame.t / pace)
                     if due > clock.now { try? await Task.sleep(until: due, clock: clock) }
                     guard let self, !Task.isCancelled else { return }
-                    self.ingest(frame.data, from: capture.deviceProtocol.notifyCharacteristicUUIDs[0])
+                    if let characteristic = capture.characteristics[frame.stream] {
+                        self.ingest(frame.data, from: characteristic)
+                    }
                 }
             } while loop && !Task.isCancelled
         }
@@ -657,6 +707,19 @@ extension BLEManager {
     /// carried, and whether the service and the name arrive together or apart.
     /// For checking how a device's advertising packet and scan response reach
     /// the app.
+    /// With `-logAdvertisements`, says each time a device is given or changes
+    /// its protocol label, and what the advertisement behind it carried. These
+    /// are not capped, unlike the advertisement log, so a device that drops off
+    /// and is listed again shows up.
+    fileprivate func logLabel(_ event: String, _ peripheral: CBPeripheral, name: String?,
+                              services: [CBUUID], label: DeviceProtocol.Identification) {
+        guard Self.logsAdvertisements else { return }
+        NSLog("Gnimu Monitor: Label \(event) for \(peripheral.identifier.uuidString.prefix(8)) "
+              + "\(name.map { "\"\($0)\"" } ?? "no name"): services "
+              + "\(services.isEmpty ? "none" : services.map(\.uuidString).joined(separator: " ")) → "
+              + "\(label.deviceProtocol.displayName) (\(label.isConfirmed ? "from a service" : "guessed from the name"))")
+    }
+
     fileprivate func logAdvertisement(of peripheral: CBPeripheral, _ data: [String: Any], rssi: Int) {
         guard Self.logsAdvertisements else { return }
         let count = loggedAdvertisements[peripheral.identifier, default: 0]

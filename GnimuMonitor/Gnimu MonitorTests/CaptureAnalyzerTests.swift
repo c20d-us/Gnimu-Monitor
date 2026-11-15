@@ -8,6 +8,7 @@
 //  analyzer would assume, the comment says so.
 //
 
+import CoreBluetooth
 import Foundation
 import Testing
 @testable import Gnimu_Monitor
@@ -102,7 +103,8 @@ struct CleanCaptureAnalysisTests {
         }
         #expect(analysis.checks.count == 8)
         #expect(check("clock-fields", in: analysis)?.samples == 1000)
-        #expect(check("speed-vs-position", in: analysis)?.samples == 999)
+        // One comparison per second of the 40 s drive, not one per packet.
+        #expect(check("speed-vs-position", in: analysis)?.samples == 39)
     }
 
     @Test func trackHoldsEveryFixAndEndsAtRest() throws {
@@ -116,14 +118,17 @@ struct CleanCaptureAnalysisTests {
 
     @Test func headerAndTrailerAreCarriedThrough() throws {
         let h = analysis.header
-        #expect(h.schema == 1)
+        #expect(h.schema == 2)
         #expect(h.format == "gnimu-capture-jsonl")
         #expect(h.deviceName == SyntheticCapture.deviceName)
         #expect(h.hostPlatform == "macOS")
         #expect(h.lowPowerMode == false)
         #expect(h.thermalState == "nominal")
         #expect(h.nominalHz == 25)
-        #expect(h.frameBytes == 88)
+        #expect(h.unit == "frame")
+        #expect(h.streams == [.init(name: "frame",
+                                    characteristic: DeviceProtocol.raceBox.notifyCharacteristicUUIDs[0].uuidString,
+                                    frameBytes: 88)])
 
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -316,11 +321,11 @@ struct CaptureReadingTests {
         }
     }
 
-    @Test func aCaptureOfAnotherProtocolIsRefusedNotMisread() {
+    @Test func aCaptureOfAnUnknownProtocolIsRefusedNotMisread() {
         var capture = SyntheticCapture()
         capture.seconds = 4
         let text = String(decoding: capture.data(), as: UTF8.self)
-            .replacingOccurrences(of: "\"protocol\":\"racebox\"", with: "\"protocol\":\"gnimu\"")
+            .replacingOccurrences(of: "\"protocol\":\"racebox\"", with: "\"protocol\":\"mystery\"")
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("analyzer-test-\(UUID().uuidString).jsonl")
         defer { try? FileManager.default.removeItem(at: url) }
@@ -333,26 +338,11 @@ struct CaptureReadingTests {
                 Issue.record("expected unsupportedProtocol, got \(error)")
                 return
             }
-            #expect(name == "gnimu")
-            #expect(error.errorDescription?.contains("gnimu") == true)
+            #expect(name == "mystery")
+            #expect(error.errorDescription?.contains("mystery") == true)
         } catch {
             Issue.record("unexpected error \(error)")
         }
-    }
-
-    @Test func aCaptureThatNamesNoProtocolIsRaceBox() throws {
-        // Captures made before the protocol was recorded.
-        var capture = SyntheticCapture()
-        capture.seconds = 4
-        let text = String(decoding: capture.data(), as: UTF8.self)
-            .replacingOccurrences(of: "\"protocol\":\"racebox\",", with: "")
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("analyzer-test-\(UUID().uuidString).jsonl")
-        defer { try? FileManager.default.removeItem(at: url) }
-        try Data(text.utf8).write(to: url)
-        let a = try CaptureAnalyzer.analyze(url: url)
-        #expect(a.summary.packetsReceived == 100)
-        #expect(a.header.protocolName == nil)
     }
 
     @Test func theProtocolNameIsReadFromTheHeader() throws {

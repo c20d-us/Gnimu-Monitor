@@ -87,6 +87,10 @@ nonisolated struct CaptureFile: Identifiable, Sendable {
     let isDownloaded: Bool
     /// The report beside it, if one has been produced.
     let analysisURL: URL?
+    /// The protocol the capture's frames are in, read from its header. `nil`
+    /// when the file can't be read yet (evicted from iCloud) or has no usable
+    /// header.
+    let deviceProtocol: DeviceProtocol?
 
     var hasAnalysis: Bool { analysisURL != nil }
 
@@ -202,9 +206,26 @@ final class CaptureStore: ObservableObject {
                 byteSize: values?.fileSize ?? 0,
                 isUbiquitous: isUbiquitous,
                 isDownloaded: isDownloaded,
-                analysisURL: analysis))
+                analysisURL: analysis,
+                deviceProtocol: isDownloaded ? deviceProtocol(ofCaptureAt: realURL) : nil))
         }
         return results
+    }
+
+    /// The protocol named in a capture's header line. Only the start of the
+    /// file is read: the header now carries the device's schema and device info,
+    /// so it is longer than it was, but still a few KB.
+    nonisolated static func deviceProtocol(ofCaptureAt url: URL) -> DeviceProtocol? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let head = try? handle.read(upToCount: 65_536),
+              let newline = head.firstIndex(of: 0x0A),
+              let object = try? JSONSerialization.jsonObject(with: head[head.startIndex..<newline]),
+              let header = object as? [String: Any],
+              header["type"] as? String == "header" else { return nil }
+        guard let capture = header["capture"] as? [String: Any],
+              let name = capture["protocol"] as? String else { return nil }
+        return DeviceProtocol(rawValue: name)
     }
 
     /// Returns the underlying capture name if this entry is an iCloud eviction

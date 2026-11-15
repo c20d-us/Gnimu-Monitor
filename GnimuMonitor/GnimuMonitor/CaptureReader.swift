@@ -40,10 +40,26 @@ nonisolated struct CaptureHeader: Sendable {
     var thermalState: String?
 
     var nominalHz: Double?
-    var frameBytes: Int = 88
-    /// The protocol the frames are in (`DeviceProtocol.rawValue`). Captures made
-    /// before it was recorded are RaceBox.
+    /// The protocol the frames are in (`DeviceProtocol.rawValue`).
     var protocolName: String?
+    /// What a line holds; "frame" is the only unit so far.
+    var unit: String?
+    /// The streams the file holds, each line naming one.
+    var streams: [Stream] = []
+
+    struct Stream: Sendable, Equatable {
+        let name: String
+        /// The characteristic the stream came from, as UUID text.
+        let characteristic: String?
+        let frameBytes: Int?
+    }
+
+    /// What the device reported about itself when recording began. Each is
+    /// absent if the device hadn't reported it yet.
+    var identity = DeviceIdentity()
+    /// The Gnimu Schema and Device info characteristics' JSON.
+    var deviceSchemaJSON: Data?
+    var deviceInfoJSON: Data?
 }
 
 /// The last line, written only on a clean stop. Its absence means the capture
@@ -61,6 +77,8 @@ nonisolated enum CaptureReadError: LocalizedError {
     case missingHeader
     case noPackets
     case unsupportedProtocol(String)
+    case unsupportedSchema(Int)
+    case unsupportedUnit(String)
     case cancelled
 
     var errorDescription: String? {
@@ -69,7 +87,13 @@ nonisolated enum CaptureReadError: LocalizedError {
         case .missingHeader:       return "This file has no capture header — it may not be a Gnimu capture."
         case .noPackets:           return "This capture contains no readable packets."
         case .unsupportedProtocol(let name):
-            return "This capture holds \(name) frames. Analysis reads only RaceBox captures so far."
+            return "This capture holds \(name) frames, which this version of the Monitor can't analyze."
+        case .unsupportedSchema(let version):
+            return version == 0 || version == 1
+                ? "This capture was recorded by an older version of the Monitor (format \(version)) and can't be read. Record it again, or delete it."
+                : "This capture is in a newer format (\(version)) than this version of the Monitor reads."
+        case .unsupportedUnit(let unit):
+            return "This capture records \(unit) lines, which this version of the Monitor can't read."
         case .cancelled:           return "Analysis was cancelled."
         }
     }
@@ -87,14 +111,15 @@ nonisolated enum CaptureReader {
 
     /// Reads `url` start to finish, delivering each element as it's parsed.
     ///
-    /// `onFrame` receives the host arrival time (seconds since session start)
-    /// and the decoded packet. Frames that fail to decode are counted and
-    /// reported through `onUndecodable` rather than aborting the read — a
-    /// corrupt line is a finding, not a fatal error.
+    /// `onFrame` receives the host arrival time (seconds since session start),
+    /// the name of the stream the frame belongs to and its bytes, for the
+    /// caller to decode in the header's protocol. Lines that aren't a readable frame line are reported through
+    /// `onUndecodable` rather than aborting the read — a corrupt line is a
+    /// finding, not a fatal error.
     nonisolated static func read(
         url: URL,
         onHeader: (CaptureHeader) -> Void,
-        onFrame: (Double, RaceBoxPacket) -> Void,
+        onFrame: (Double, String, Data) -> Void,
         onUndecodable: () -> Void,
         onTrailer: (CaptureTrailer) -> Void,
         onProgress: (Double) -> Void = { _ in },
@@ -116,6 +141,7 @@ nonisolated enum CaptureReader {
 
         var sawHeader = false
         var sawPacket = false
+        var streamNames: Set<String> = []
         var remainder = Data()
         var linesSinceCancelCheck = 0
 
@@ -148,17 +174,16 @@ nonisolated enum CaptureReader {
 
                 switch classify(line) {
                 case .header(let h):
-                    // Analysis is built around RaceBox's fix timestamps; any other
-                    // protocol's frames would be misread as RaceBox ones and
-                    // reported as undecodable.
-                    if let name = h.protocolName, name != DeviceProtocol.raceBox.rawValue {
-                        throw CaptureReadError.unsupportedProtocol(name)
-                    }
+                    try validate(h)
+                    streamNames = Set(h.streams.map(\.name))
                     sawHeader = true
                     onHeader(h)
-                case .frame(let t, let packet):
+                case .frame(let t, let stream, let bytes):
+                    // A frame naming a stream the header doesn't list isn't one
+                    // this capture says it holds.
+                    guard streamNames.contains(stream) else { onUndecodable(); continue }
                     sawPacket = true
-                    onFrame(t, packet)
+                    onFrame(t, stream, bytes)
                 case .undecodable:
                     onUndecodable()
                 case .trailer(let t):
@@ -173,9 +198,10 @@ nonisolated enum CaptureReader {
         }
 
         // A capture killed mid-write can end without a newline.
-        if !remainder.isEmpty, case .frame(let t, let packet) = classify(remainder[...]) {
+        if !remainder.isEmpty, case .frame(let t, let stream, let bytes) = classify(remainder[...]),
+           streamNames.contains(stream) {
             sawPacket = true
-            onFrame(t, packet)
+            onFrame(t, stream, bytes)
         }
 
         guard sawHeader else { throw CaptureReadError.missingHeader }
@@ -186,7 +212,7 @@ nonisolated enum CaptureReader {
 
     private enum Line {
         case header(CaptureHeader)
-        case frame(Double, RaceBoxPacket)
+        case frame(Double, String, Data)
         case trailer(CaptureTrailer)
         case undecodable
         case blank
@@ -211,16 +237,26 @@ nonisolated enum CaptureReader {
         case nil:
             // No "type" key means a packet line.
             guard let t = dict["t"] as? Double,
+                  let stream = dict["c"] as? String,
                   let encoded = dict["d"] as? String,
-                  let bytes = Data(base64Encoded: encoded),
-                  let packet = RaceBoxPacket.parse(from: bytes) else {
+                  let bytes = Data(base64Encoded: encoded) else {
                 return .undecodable
             }
-            return .frame(t, packet)
+            return .frame(t, stream, bytes)
         }
     }
 
-    private static func parseHeader(_ d: [String: Any]) -> CaptureHeader {
+    /// Refuses a header this build can't read: another format version, a line
+    /// unit it doesn't know, or a protocol it doesn't speak.
+    static func validate(_ h: CaptureHeader) throws {
+        guard h.schema == captureSchemaVersion else { throw CaptureReadError.unsupportedSchema(h.schema) }
+        guard h.unit == captureUnit else { throw CaptureReadError.unsupportedUnit(h.unit ?? "unknown") }
+        guard let name = h.protocolName, DeviceProtocol(rawValue: name) != nil else {
+            throw CaptureReadError.unsupportedProtocol(h.protocolName ?? "unknown")
+        }
+    }
+
+    static func parseHeader(_ d: [String: Any]) -> CaptureHeader {
         var h = CaptureHeader()
         h.schema = d["schema"] as? Int ?? 0
         h.format = d["format"] as? String
@@ -231,6 +267,19 @@ nonisolated enum CaptureReader {
         if let device = d["device"] as? [String: Any] {
             h.deviceName = device["name"] as? String
             h.peripheralId = device["peripheralId"] as? String
+            if let id = device["identity"] as? [String: Any] {
+                h.identity = DeviceIdentity(manufacturer: id["manufacturer"] as? String,
+                                            model: id["model"] as? String,
+                                            serial: id["serial"] as? String,
+                                            firmware: id["firmware"] as? String,
+                                            hardware: id["hardware"] as? String)
+            }
+            if let schema = device["schema"], JSONSerialization.isValidJSONObject(schema) {
+                h.deviceSchemaJSON = try? JSONSerialization.data(withJSONObject: schema)
+            }
+            if let info = device["info"], JSONSerialization.isValidJSONObject(info) {
+                h.deviceInfoJSON = try? JSONSerialization.data(withJSONObject: info)
+            }
         }
         if let app = d["app"] as? [String: Any] {
             h.appVersion = app["version"] as? String
@@ -245,8 +294,13 @@ nonisolated enum CaptureReader {
         }
         if let capture = d["capture"] as? [String: Any] {
             h.nominalHz = capture["nominalHz"] as? Double
-            h.frameBytes = capture["frameBytes"] as? Int ?? 88
             h.protocolName = capture["protocol"] as? String
+            h.unit = capture["unit"] as? String
+            for entry in capture["streams"] as? [[String: Any]] ?? [] {
+                guard let name = entry["name"] as? String else { continue }
+                h.streams.append(.init(name: name, characteristic: entry["characteristic"] as? String,
+                                       frameBytes: entry["frameBytes"] as? Int))
+            }
         }
         return h
     }

@@ -27,8 +27,9 @@ nonisolated struct DeviceProfile: Equatable, Sendable {
     var hasImu = false
     var hasVehicle = false
     var hasPower = false
-    /// The GNSS block carries the receiver's own epoch stamp, which is what the
-    /// fix-rate tracker measures cadence from.
+    /// The device has a GNSS receiver whose fix cadence can be tracked: from
+    /// the receiver's own epoch stamp (RaceBox) or the solution's arrival time
+    /// on the device clock (Gnimu protocol).
     var hasReceiverClock = false
     /// Frames carry a header with device time and a sequence number, so the
     /// stream itself can be checked for rate, gaps and delivery.
@@ -50,7 +51,7 @@ nonisolated struct DeviceProfile: Equatable, Sendable {
         hasImu = telemetry.imu != nil
         hasVehicle = telemetry.vehicle != nil
         hasPower = telemetry.power != nil
-        hasReceiverClock = telemetry.gnss?.timeOfWeekMs != nil
+        hasReceiverClock = telemetry.gnss != nil
         hasStreamHeader = telemetry.header != nil
     }
 

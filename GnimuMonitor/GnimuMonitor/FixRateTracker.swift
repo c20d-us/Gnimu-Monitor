@@ -298,7 +298,13 @@ struct FixRateTracker {
         guard deltas.count >= minimumIntervals else { return }
 
         var counts: [Int: Int] = [:]
-        for delta in deltas { counts[Int(delta.rounded()), default: 0] += 1 }
+        // Deltas near a standard period are counted as that period, so a
+        // timestamp with a few ms of jitter (the Gnimu protocol's solution
+        // arrival time) still agrees with itself; exact stamps are unaffected.
+        for delta in deltas {
+            let key = standardPeriod(near: delta, tolerance: 0.1).map { Int($0) } ?? Int(delta.rounded())
+            counts[key, default: 0] += 1
+        }
 
         // Deterministic tiebreak on the shorter period, so equally common
         // deltas can't flip the nominal between evaluations.
@@ -339,8 +345,8 @@ struct FixRateTracker {
 
     /// The standard output period this measurement is close enough to be, or
     /// `nil` if it doesn't correspond to a rate the device can be set to.
-    private func standardPeriod(near ms: Double) -> Double? {
-        standardPeriodsMs.first { abs(ms - $0) <= $0 * 0.05 }
+    private func standardPeriod(near ms: Double, tolerance: Double = 0.05) -> Double? {
+        standardPeriodsMs.first { abs(ms - $0) <= $0 * tolerance }
     }
 
     private func status(hz: Double, nominalHz: Double, missed: Int,

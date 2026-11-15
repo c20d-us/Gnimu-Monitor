@@ -70,7 +70,7 @@ struct SyntheticGnimuCapture {
                 b.set(.gear, Double(car.gear))
                 b.set(.supplyVoltage, 13.8)
             }
-            lines.append(String(format: "{\"t\":%.4f,\"d\":\"", t) + Data(b.build()).base64EncodedString() + "\"}")
+            lines.append(CaptureLines.frame(t: t, data: Data(b.build())))
             lastT = t
         }
         if includeTrailer { lines.append(trailerLine(packets: frameCount, duration: lastT)) }
@@ -79,15 +79,18 @@ struct SyntheticGnimuCapture {
 
     private func headerLine() -> String {
         json([
-            "type": "header", "schema": 1, "format": "gnimu-capture-jsonl",
+            "type": "header", "schema": captureSchemaVersion, "format": "gnimu-capture-jsonl",
             "sessionId": "00000000-0000-0000-0000-000000000002",
             "startedAt": Self.startedAt, "timeZone": "UTC",
-            "device": ["name": Self.deviceName, "peripheralId": "TEST-PERIPHERAL"],
+            "device": ["name": Self.deviceName, "peripheralId": "TEST-PERIPHERAL",
+                       "identity": ["manufacturer": "Gnimu", "model": "Gnimu-CAN", "serial": "0000000001",
+                                    "firmware": "0.1.0", "hardware": "XIAO ESP32C6"],
+                       "schema": ["v": 1, "d": "Gnimu-CAN", "r": 20, "fill": ["vehicle": 3, "power": 1]],
+                       "info": ["v": 1, "build": ["rev": "abc1234", "target": "esp32c6"], "cfg": ["can_bitrate": 500000]]],
             "app": ["name": "Gnimu Monitor", "version": "1.0", "build": "1"],
             "host": ["platform": "macOS", "systemVersion": "Test OS", "model": "TestMac",
                      "lowPowerMode": false, "thermalState": "nominal"],
-            "capture": ["protocol": "gnimu", "frameBytes": 140, "encoding": "base64",
-                        "timeBase": "seconds since startedAt, monotonic", "nominalHz": hz],
+            "capture": CaptureLines.captureBlock(for: .gnimu, nominalHz: hz),
         ])
     }
 

@@ -35,7 +35,10 @@ nonisolated enum CaptureAnalyzer {
     /// than a run of missed fixes.
     private static let interruptionPeriods = 10.0
     /// Output periods RaceBox devices actually use, in ms: 25, 20, 10, 5, 1 Hz.
-    private static let standardPeriodsMs: [Double] = [40, 50, 100, 200, 1000]
+    private static let raceBoxPeriodsMs: [Double] = [40, 50, 100, 200, 1000]
+    /// Frame periods a Gnimu device is likely to run at, in ms: it streams
+    /// frames at its own rate, which can be faster than a GNSS receiver's.
+    private static let gnimuPeriodsMs: [Double] = [20, 40, 50, 100, 200, 1000]
     /// Consecutive intervals a new standard period must hold before it replaces
     /// the nominal. A single dropped fix at 20 Hz or 10 Hz lands exactly on the
     /// next standard period (100 / 200 ms), so one interval proves nothing.
@@ -47,9 +50,13 @@ nonisolated enum CaptureAnalyzer {
     /// Below this ground speed the device is treated as stationary, which is
     /// what makes the IMU-at-rest checks meaningful.
     private static let stationarySpeedMs = 0.5
-    /// GPS-UTC offset, constant at 18 s since 2017. Used to check the packet's
-    /// broken-out clock against its own iTOW.
-    private static let gpsUtcLeapSeconds = 18.0
+    /// How far the Gnimu UTC timestamp may stray from the device clock's
+    /// advance, in ms. The timestamp is the receiver's and the clock is the
+    /// device's; the receiver's output delay varies by tens of ms.
+    private static let utcOffsetToleranceMs = 500.0
+
+    /// How long a stretch the speed check compares over, in ms of GNSS epoch time.
+    private static let speedWindowMs = 1000.0
 
     private static let maxRetainedGaps = 500
     private static let maxTrackPoints = 5_000
@@ -70,13 +77,26 @@ nonisolated enum CaptureAnalyzer {
 
         try CaptureReader.read(
             url: url,
-            onHeader: { state.header = $0 },
-            onFrame: { t, packet in state.ingest(t: t, packet: packet) },
+            onHeader: { state.configure(for: $0) },
+            onFrame: { t, stream, bytes in
+                // Both protocols send their data on one stream today; a stream
+                // this analyzer doesn't read is left out, not counted against
+                // the device.
+                guard stream == "frame" else { return }
+                if let sample = state.sample(from: bytes) {
+                    state.ingest(t: t, sample: sample)
+                } else {
+                    state.undecodableLines += 1
+                }
+            },
             onUndecodable: { state.undecodableLines += 1 },
             onTrailer: { state.trailer = $0 },
             onProgress: onProgress,
             isCancelled: isCancelled
         )
+
+        // Every frame line was unreadable in the capture's protocol.
+        guard state.packets > 0 else { throw CaptureReadError.noPackets }
 
         return state.finish(url: url, analysisDuration: Date().timeIntervalSince(began))
     }
@@ -105,9 +125,9 @@ nonisolated enum CaptureAnalyzer {
 
     /// Snap an observed period to the nearest rate the hardware actually uses,
     /// so jitter doesn't invent a nominal of 40.3 ms.
-    private static func snapToStandard(_ ms: Double) -> Double? {
+    private static func snapToStandard(_ ms: Double, periods: [Double]) -> Double? {
         guard ms > 0 else { return nil }
-        let best = standardPeriodsMs.min { abs($0 - ms) < abs($1 - ms) }
+        let best = periods.min { abs($0 - ms) < abs($1 - ms) }
         guard let best, abs(best - ms) <= best * 0.25 else { return nil }
         return best
     }
@@ -118,18 +138,20 @@ nonisolated enum CaptureAnalyzer {
     /// streaming callbacks stay short and the ordering is obvious.
     private struct State {
         var header = CaptureHeader()
+        var isGnimu = false
         var trailer: CaptureTrailer?
         var fileSize = 0
         var undecodableLines = 0
 
         // Sequence
         var packets = 0
-        var previous: RaceBoxPacket?
+        var previous: AnalysisSample?
         var previousT: Double?
         var firstT: Double?
         var lastT: Double?
-        var firstITOW: UInt32?
-        var lastITOW: UInt32?
+        var firstClock: UInt32?
+        var lastClock: UInt32?
+        var standardPeriods = CaptureAnalyzer.raceBoxPeriodsMs
 
         // Cadence
         var nominalMs: Double?
@@ -139,8 +161,8 @@ nonisolated enum CaptureAnalyzer {
             let t: Double
             let deltaMs: Double
             let arrivalGapMs: Double
-            let previousITOW: UInt32
-            let packet: RaceBoxPacket
+            let previousClock: UInt32
+            let sample: AnalysisSample
         }
         var pending: [PendingInterval] = []
         /// A standard period other than the nominal, and how many intervals in
@@ -161,7 +183,7 @@ nonisolated enum CaptureAnalyzer {
         /// …but the run is measured on the device's own clock. It's a claim
         /// about the device holding cadence, so BLE delivery timing must not
         /// be able to lengthen or shorten it.
-        var cleanRunStartITOW: UInt32?
+        var cleanRunStartClock: UInt32?
         var longestCleanRun = 0.0
         var longestCleanRunStart = 0.0
 
@@ -186,9 +208,36 @@ nonisolated enum CaptureAnalyzer {
         var maxSpeedKmh = 0.0
 
         // Consistency
-        var itowBackwards = 0, itowDuplicate = 0
-        var firstITOWViolation: Double?
-        var itowViolationExample: String?
+        var clockBackwards = 0, clockDuplicate = 0
+        var firstClockViolation: Double?
+        var clockViolationExample: String?
+        /// Gnimu frame counter: frames the counter says were lost, and steps
+        /// that aren't losses (repeats, or a jump back, as after a restart).
+        var sequenceSamples = 0
+        var sequenceLost = 0, sequenceOther = 0
+        var firstSequenceProblem: Double?
+        var sequenceExample: String?
+        /// UTC timestamp minus the solution's device-clock time, taken from
+        /// the first frame that has both; later frames should keep to it.
+        var utcOffsetReferenceMs: Double?
+        /// The last frame that carried a new GNSS epoch, for the distance and
+        /// speed checks.
+        var previousEpoch: AnalysisSample?
+        /// The stretch the speed check is accumulating over, from its first fix.
+        struct SpeedWindow {
+            let epoch: UInt32
+            let latitude: Double
+            let longitude: Double
+            var speedSum: Double
+            var accuracySum: Double
+            var count: Int
+        }
+        var speedWindow: SpeedWindow?
+        /// Device times of the frames in the last second, for the Gnimu rate trace.
+        var rateWindow: [UInt32] = []
+        var cadenceReference: CadenceReference?
+        /// Frames from a GNSS device that carried no epoch yet.
+        var framesWithoutEpoch = 0
         var clockFieldMismatches = 0, clockFieldSamples = 0
         var firstClockMismatch: Double?
         var clockMismatchExample: String?
@@ -218,56 +267,86 @@ nonisolated enum CaptureAnalyzer {
 
         // MARK: Ingest
 
-        mutating func ingest(t: Double, packet: RaceBoxPacket) {
+        /// Reads the capture's protocol from its header. A capture that names
+        /// none predates the field and is RaceBox.
+        mutating func configure(for header: CaptureHeader) {
+            self.header = header
+            isGnimu = header.protocolName == DeviceProtocol.gnimu.rawValue
+            standardPeriods = isGnimu ? CaptureAnalyzer.gnimuPeriodsMs
+                                      : CaptureAnalyzer.raceBoxPeriodsMs
+        }
+
+        /// Decodes one frame's bytes in the capture's protocol, or `nil` if
+        /// they aren't a valid frame.
+        func sample(from bytes: Data) -> AnalysisSample? {
+            if isGnimu {
+                guard let frame = try? GnimuFrameV1.Frame(bytes) else { return nil }
+                return AnalysisSample(frame)
+            }
+            guard let packet = RaceBoxPacket.parse(from: bytes) else { return nil }
+            return AnalysisSample(packet)
+        }
+
+        mutating func ingest(t: Double, sample: AnalysisSample) {
             packets += 1
             if firstT == nil {
                 firstT = t
-                firstITOW = packet.iTOW
+                firstClock = sample.clockMs
                 cleanRunStart = t
-                cleanRunStartITOW = packet.iTOW
+                cleanRunStartClock = sample.clockMs
             }
             lastT = t
-            lastITOW = packet.iTOW
+            lastClock = sample.clockMs
 
-            ingestQuality(t: t, packet: packet)
-            ingestTransport(t: t, packet: packet)
-            ingestCadence(t: t, packet: packet)
-            ingestConsistency(t: t, packet: packet)
-            ingestTrack(t: t, packet: packet)
+            ingestQuality(t: t, sample: sample)
+            ingestTransport(t: t, sample: sample)
+            ingestCadence(t: t, sample: sample)
+            ingestConsistency(t: t, sample: sample)
+            ingestTrack(t: t, sample: sample)
 
-            previous = packet
+            previous = sample
             previousT = t
         }
 
         // MARK: Quality
 
-        private mutating func ingestQuality(t: Double, packet: RaceBoxPacket) {
-            numSV.add(Double(packet.numSV))
-            pDOP.add(packet.pDOP)
-            hAcc.add(packet.hAcc)
-            vAcc.add(packet.vAcc)
-            fixTypeCounts[packet.fixType, default: 0] += 1
-
-            sNumSV.add(t: t, value: Double(packet.numSV))
-            sPDOP.add(t: t, value: packet.pDOP)
-            sHAcc.add(t: t, value: packet.hAcc)
-            sSpeed.add(t: t, value: packet.speedKmh)
-            maxSpeedKmh = max(maxSpeedKmh, packet.speedKmh)
-
-            let battery = packet.batteryPercent
-            if batteryStart == nil { batteryStart = battery }
-            if let last = batteryEnd, battery > last, packet.isCharging == false {
-                // Charge rising while not charging is a reporting fault.
-                batteryIncreases += 1
+        private mutating func ingestQuality(t: Double, sample: AnalysisSample) {
+            if let n = sample.numSV {
+                numSV.add(Double(n))
+                sNumSV.add(t: t, value: Double(n))
             }
-            batteryEnd = battery
-            if let was = wasCharging, was != packet.isCharging { chargingTransitions += 1 }
-            wasCharging = packet.isCharging
+            if let v = sample.pDOP {
+                pDOP.add(v)
+                sPDOP.add(t: t, value: v)
+            }
+            if let v = sample.hAcc {
+                hAcc.add(v)
+                sHAcc.add(t: t, value: v)
+            }
+            if let v = sample.vAcc { vAcc.add(v) }
+            if let type = sample.fixType { fixTypeCounts[type, default: 0] += 1 }
+            if let speed = sample.speedKmh {
+                sSpeed.add(t: t, value: speed)
+                maxSpeedKmh = max(maxSpeedKmh, speed)
+            }
+
+            if let battery = sample.batteryPercent {
+                if batteryStart == nil { batteryStart = battery }
+                if let last = batteryEnd, battery > last, sample.isCharging == false {
+                    // Charge rising while not charging is a reporting fault.
+                    batteryIncreases += 1
+                }
+                batteryEnd = battery
+            }
+            if let charging = sample.isCharging {
+                if let was = wasCharging, was != charging { chargingTransitions += 1 }
+                wasCharging = charging
+            }
         }
 
         // MARK: Transport
 
-        private mutating func ingestTransport(t: Double, packet: RaceBoxPacket) {
+        private mutating func ingestTransport(t: Double, sample: AnalysisSample) {
             guard let prevT = previousT else {
                 lastBurstStart = t
                 burstSize = 1
@@ -291,9 +370,9 @@ nonisolated enum CaptureAnalyzer {
 
             // Divergence between the two clocks: how far host elapsed time has
             // drifted from the device's own elapsed time.
-            if let firstT, let firstITOW {
+            if let firstT, let firstClock {
                 let hostMs = (t - firstT) * 1000
-                let deviceMs = Double(packet.iTOW) - Double(firstITOW)
+                let deviceMs = Double(sample.clockMs) - Double(firstClock)
                 if deviceMs >= 0 {
                     let drift = hostMs - deviceMs
                     sDrift.add(t: t, value: drift)
@@ -304,20 +383,77 @@ nonisolated enum CaptureAnalyzer {
 
         // MARK: Cadence
 
-        private mutating func ingestCadence(t: Double, packet: RaceBoxPacket) {
-            guard let previous, let prevT = previousT else { return }
-            let deltaMs = Double(packet.iTOW) - Double(previous.iTOW)
+        /// What the previous cadence measurement was taken from.
+        struct CadenceReference {
+            let clock: UInt32
+            let deviceClock: UInt32
+            let t: Double
+            let usesEpoch: Bool
+        }
+
+        /// Cadence is measured on the GNSS epoch where a frame has one: the
+        /// receiver's own stamp (iTOW for RaceBox, the UTC timestamp for a Gnimu
+        /// device) steps by exactly one period per solution. A Gnimu frame's
+        /// device time is stamped as the frame is sent and wobbles by several
+        /// ms, so it only serves for a device with no GNSS. A frame repeating
+        /// the previous solution adds no interval.
+        private mutating func ingestCadence(t: Double, sample: AnalysisSample) {
+            // A GNSS device with no resolved time yet (a cold start) has no
+            // epoch, and its device time is the stamp that wobbles, so these
+            // frames take no part in the cadence. They are counted instead.
+            if isGnimu && sample.hasGnssBlock && sample.gnssEpochMs == nil {
+                framesWithoutEpoch += 1
+                cadenceReference = nil
+                rateWindow.removeAll()
+                return
+            }
+            let epoch = isGnimu ? sample.gnssEpochMs : nil
+            let clock = epoch ?? sample.clockMs
+            let usesEpoch = epoch != nil
+            let reference = CadenceReference(clock: clock, deviceClock: sample.clockMs,
+                                             t: t, usesEpoch: usesEpoch)
+            guard let ref = cadenceReference, ref.usesEpoch == usesEpoch else {
+                cadenceReference = reference
+                rateWindow.removeAll()
+                return
+            }
+            if usesEpoch && clock == ref.clock { return }
+            cadenceReference = reference
+
+            let deltaMs = Double(clock) - Double(ref.clock)
 
             if deltaMs > 0 {
                 intervalHistogram[Int(deltaMs.rounded()), default: 0] += 1
                 intervalStats.add(deltaMs)
-                sFixRate.add(t: t, value: 1000 / deltaMs)
+                if isGnimu {
+                    addWindowedRate(t: t, clockMs: clock)
+                } else {
+                    sFixRate.add(t: t, value: 1000 / deltaMs)
+                }
+            } else {
+                rateWindow.removeAll()
             }
             longestGapMs = max(longestGapMs, deltaMs)
 
             settleNominal(PendingInterval(t: t, deltaMs: deltaMs,
-                                          arrivalGapMs: (t - prevT) * 1000,
-                                          previousITOW: previous.iTOW, packet: packet))
+                                          arrivalGapMs: (t - ref.t) * 1000,
+                                          previousClock: ref.deviceClock, sample: sample))
+        }
+
+        /// The Gnimu frame rate trace: frames over the last second of device
+        /// time. A Gnimu device stamps each frame as it sends it, so one frame
+        /// can go out a few ms late and the next on time; the rate from a single
+        /// interval then swings either side of the true rate. The histogram
+        /// still shows that timing spread.
+        private mutating func addWindowedRate(t: Double, clockMs: UInt32) {
+            rateWindow.append(clockMs)
+            while rateWindow.count > 3, let first = rateWindow.first,
+                  Double(clockMs) - Double(first) > 1000 {
+                rateWindow.removeFirst()
+            }
+            guard rateWindow.count >= 3, let first = rateWindow.first else { return }
+            let span = Double(clockMs) - Double(first)
+            if span > 0 { sFixRate.add(t: t, value: Double(rateWindow.count - 1) / (span / 1000)) }
         }
 
         /// Holds intervals back while a different standard period is proving
@@ -325,7 +461,7 @@ nonisolated enum CaptureAnalyzer {
         /// be judged by.
         private mutating func settleNominal(_ interval: PendingInterval) {
             let onStandard = interval.deltaMs > 0
-                ? CaptureAnalyzer.snapToStandard(interval.deltaMs)
+                ? CaptureAnalyzer.snapToStandard(interval.deltaMs, periods: standardPeriods)
                     .flatMap { abs(interval.deltaMs - $0) <= $0 * 0.1 ? $0 : nil }
                 : nil
 
@@ -381,20 +517,20 @@ nonisolated enum CaptureAnalyzer {
                 missedFixes += n
                 sMissed.add(t: iv.t, value: Double(n))
                 noteGap(t: iv.t, deviceGapMs: iv.deltaMs, arrivalGapMs: iv.arrivalGapMs,
-                        missed: n, interruption: false, packet: iv.packet, nominal: nominal)
-                endCleanRun(endedAt: iv.previousITOW, resumingAt: iv.t, itow: iv.packet.iTOW)
+                        missed: n, interruption: false, sample: iv.sample, nominal: nominal)
+                endCleanRun(endedAt: iv.previousClock, resumingAt: iv.t, clock: iv.sample.clockMs)
             case .interrupted:
                 interruptions += 1
                 sMissed.add(t: iv.t, value: Double(Int(iv.deltaMs / nominal) - 1))
                 noteGap(t: iv.t, deviceGapMs: iv.deltaMs, arrivalGapMs: iv.arrivalGapMs,
-                        missed: 0, interruption: true, packet: iv.packet, nominal: nominal)
-                endCleanRun(endedAt: iv.previousITOW, resumingAt: iv.t, itow: iv.packet.iTOW)
+                        missed: 0, interruption: true, sample: iv.sample, nominal: nominal)
+                endCleanRun(endedAt: iv.previousClock, resumingAt: iv.t, clock: iv.sample.clockMs)
             case .anomalous:
                 anomalous += 1
                 // A duplicate or out-of-order timestamp is a device fault too.
                 // Letting it slide would report the stretches either side of it
                 // as one unbroken clean run.
-                endCleanRun(endedAt: iv.previousITOW, resumingAt: iv.t, itow: iv.packet.iTOW)
+                endCleanRun(endedAt: iv.previousClock, resumingAt: iv.t, clock: iv.sample.clockMs)
             }
         }
 
@@ -402,7 +538,7 @@ nonisolated enum CaptureAnalyzer {
         /// a transport stall moves only the host's.
         private mutating func noteGap(t: Double, deviceGapMs: Double, arrivalGapMs: Double,
                                       missed: Int, interruption: Bool,
-                                      packet: RaceBoxPacket, nominal: Double) {
+                                      sample: AnalysisSample, nominal: Double) {
             let tolerance = max(nominal * 0.5, 20)
             let attribution: GapAttribution
             if deviceGapMs > nominal + tolerance && arrivalGapMs < nominal + tolerance {
@@ -418,8 +554,8 @@ nonisolated enum CaptureAnalyzer {
             }
             self.attribution[attribution, default: 0] += 1
 
-            svAtGaps.add(Double(packet.numSV))
-            pdopAtGaps.add(packet.pDOP)
+            if let n = sample.numSV { svAtGaps.add(Double(n)) }
+            if let v = sample.pDOP { pdopAtGaps.add(v) }
 
             // Bounded: a pathological capture shouldn't be able to grow this
             // without limit, and a report can't show 100,000 gaps anyway.
@@ -435,120 +571,130 @@ nonisolated enum CaptureAnalyzer {
 
         /// Closes the clean run at the last fix that arrived on cadence, then
         /// opens a new one at the fix that resumed the stream.
-        private mutating func endCleanRun(endedAt lastGoodITOW: UInt32,
-                                          resumingAt t: Double, itow: UInt32) {
-            if let startITOW = cleanRunStartITOW, let start = cleanRunStart {
-                let duration = (Double(lastGoodITOW) - Double(startITOW)) / 1000
+        private mutating func endCleanRun(endedAt lastGoodClock: UInt32,
+                                          resumingAt t: Double, clock: UInt32) {
+            if let startClock = cleanRunStartClock, let start = cleanRunStart {
+                let duration = (Double(lastGoodClock) - Double(startClock)) / 1000
                 if duration > longestCleanRun {
                     longestCleanRun = duration
                     longestCleanRunStart = start
                 }
             }
             cleanRunStart = t
-            cleanRunStartITOW = itow
+            cleanRunStartClock = clock
         }
 
         // MARK: Consistency
 
-        private mutating func ingestConsistency(t: Double, packet: RaceBoxPacket) {
+        private var clockName: String { isGnimu ? "Device time" : "iTOW" }
+
+        private mutating func ingestConsistency(t: Double, sample: AnalysisSample) {
             if let previous {
-                let delta = Double(packet.iTOW) - Double(previous.iTOW)
+                let delta = Double(sample.clockMs) - Double(previous.clockMs)
                 if delta < 0 {
-                    itowBackwards += 1
-                    if firstITOWViolation == nil {
-                        firstITOWViolation = t
-                        itowViolationExample =
-                            "iTOW went backwards: \(previous.iTOW) → \(packet.iTOW) ms"
+                    clockBackwards += 1
+                    // A restart resets the device clock, so what the UTC
+                    // timestamp is measured against starts over.
+                    utcOffsetReferenceMs = nil
+                    if firstClockViolation == nil {
+                        firstClockViolation = t
+                        clockViolationExample =
+                            "\(clockName) went backwards: \(previous.clockMs) → \(sample.clockMs) ms"
                     }
                 } else if delta == 0 {
-                    itowDuplicate += 1
-                    if firstITOWViolation == nil {
-                        firstITOWViolation = t
-                        itowViolationExample = "iTOW repeated: \(packet.iTOW) ms"
+                    clockDuplicate += 1
+                    if firstClockViolation == nil {
+                        firstClockViolation = t
+                        clockViolationExample = "\(clockName) repeated: \(sample.clockMs) ms"
                     }
                 }
-            }
 
-            // The packet reports both a time-of-week and a broken-out clock;
-            // they should describe the same instant.
-            if packet.dateTimeFlags & 0x03 != 0 {
-                clockFieldSamples += 1
-                let secondsOfDay = (Double(packet.iTOW) / 1000)
-                    .truncatingRemainder(dividingBy: 86_400)
-                let expected = (secondsOfDay - CaptureAnalyzer.gpsUtcLeapSeconds + 86_400)
-                    .truncatingRemainder(dividingBy: 86_400)
-                let actual = Double(packet.hour) * 3600 + Double(packet.minute) * 60
-                    + Double(packet.second)
-                var diff = abs(expected - actual)
-                if diff > 43_200 { diff = 86_400 - diff }   // wrap at midnight
-                if diff > 2 {
-                    clockFieldMismatches += 1
-                    if firstClockMismatch == nil {
-                        firstClockMismatch = t
-                        clockMismatchExample = String(
-                            format: "iTOW implies %02d:%02d:%02.0f UTC, packet says %02d:%02d:%02d",
-                            Int(expected / 3600), Int(expected.truncatingRemainder(
-                                dividingBy: 3600) / 60),
-                            expected.truncatingRemainder(dividingBy: 60),
-                            Int(packet.hour), Int(packet.minute), Int(packet.second))
-                    }
-                }
-            }
-
-            // Distance covered between fixes against the speed the device
-            // reported — two independently derived quantities that must agree.
-            if let previous, previous.hasValidFix, packet.hasValidFix {
-                let dtSeconds = (Double(packet.iTOW) - Double(previous.iTOW)) / 1000
-                if dtSeconds > 0, dtSeconds < 2 {
-                    let metres = CaptureAnalyzer.distance(previous.latitude, previous.longitude,
-                                                          packet.latitude, packet.longitude)
-                    distanceMetres += metres
-                    let impliedSpeed = metres / dtSeconds
-                    let reported = packet.groundSpeed
-                    // Generous: GNSS position noise dominates at low speed, so
-                    // only gross disagreement counts.
-                    let allowance = max(packet.speedAccuracy * 5, 3.0) + reported * 0.5
-                    speedSamples += 1
-                    if abs(impliedSpeed - reported) > allowance {
-                        speedMismatches += 1
-                        if firstSpeedMismatch == nil {
-                            firstSpeedMismatch = t
-                            speedMismatchExample = String(
-                                format: "position implies %.1f m/s, packet reports %.1f m/s",
-                                impliedSpeed, reported)
+                if let seq = sample.sequence, let prevSeq = previous.sequence {
+                    sequenceSamples += 1
+                    let step = Int(seq &- prevSeq)
+                    if step != 1 {
+                        // A jump of more than half the counter is a repeat or a
+                        // step back rather than a run of lost frames.
+                        if step == 0 || step > 128 {
+                            sequenceOther += 1
+                            if firstSequenceProblem == nil {
+                                firstSequenceProblem = t
+                                sequenceExample = "sequence went \(prevSeq) → \(seq)"
+                            }
+                        } else {
+                            sequenceLost += step - 1
+                            if firstSequenceProblem == nil {
+                                firstSequenceProblem = t
+                                sequenceExample = "sequence went \(prevSeq) → \(seq): \(step - 1) frame\(step == 2 ? "" : "s") lost"
+                            }
                         }
                     }
                 }
             }
 
-            // At rest the accelerometer should read one gravity and the gyros
-            // should read nothing — the cleanest IMU sanity test available.
-            if packet.groundSpeed < CaptureAnalyzer.stationarySpeedMs {
-                let magnitude = (packet.accelX * packet.accelX
-                                 + packet.accelY * packet.accelY
-                                 + packet.accelZ * packet.accelZ).squareRoot()
-                restAccelStats.add(magnitude)
-                let rotation = (packet.gyroX * packet.gyroX
-                                + packet.gyroY * packet.gyroY
-                                + packet.gyroZ * packet.gyroZ).squareRoot()
-                restGyroStats.add(rotation)
+            // The clock fields describe one instant two ways; they must agree.
+            if let result = sample.clockFieldResult {
+                clockFieldSamples += 1
+                if case .mismatch(let example) = result {
+                    clockFieldMismatches += 1
+                    if firstClockMismatch == nil {
+                        firstClockMismatch = t
+                        clockMismatchExample = example
+                    }
+                }
+            } else if let utc = sample.utcMs, let age = sample.epochAgeMs {
+                // The UTC timestamp is when the solution was computed, so it
+                // advances with the device clock: its offset from the solution's
+                // device time stays put.
+                let offset = utc - (Double(sample.clockMs) - age)
+                if let reference = utcOffsetReferenceMs {
+                    clockFieldSamples += 1
+                    if abs(offset - reference) > CaptureAnalyzer.utcOffsetToleranceMs {
+                        clockFieldMismatches += 1
+                        if firstClockMismatch == nil {
+                            firstClockMismatch = t
+                            clockMismatchExample = String(
+                                format: "UTC and device time drifted apart by %.0f ms",
+                                offset - reference)
+                        }
+                    }
+                } else {
+                    utcOffsetReferenceMs = offset
+                }
             }
 
-            var rangeProblem: String?
-            if packet.latitude < -90 || packet.latitude > 90 {
-                rangeProblem = String(format: "latitude %.6f out of range", packet.latitude)
-            } else if packet.longitude < -180 || packet.longitude > 180 {
-                rangeProblem = String(format: "longitude %.6f out of range", packet.longitude)
-            } else if packet.headingOfMotion < -360 || packet.headingOfMotion > 360 {
-                rangeProblem = String(format: "heading %.2f° out of range", packet.headingOfMotion)
-            } else if packet.pDOP < 0 || packet.pDOP > 100 {
-                rangeProblem = String(format: "pDOP %.2f out of range", packet.pDOP)
-            } else if packet.batteryPercent > 100 {
-                rangeProblem = "battery \(packet.batteryPercent)% out of range"
-            } else if packet.numSV > 64 {
-                rangeProblem = "\(packet.numSV) satellites is implausible"
+            // Distance covered between GNSS epochs, and the speed the device
+            // reported over the same stretch — two independently derived
+            // quantities that must agree. Only a new epoch counts: a Gnimu
+            // frame can repeat the last solution, which says nothing about speed.
+            if let epoch = sample.gnssEpochMs {
+                if let prevEpoch = previousEpoch?.gnssEpochMs, epoch != prevEpoch {
+                    if let previousEpoch, previousEpoch.hasFix, sample.hasFix,
+                       let lat1 = previousEpoch.latitude, let lon1 = previousEpoch.longitude,
+                       let lat2 = sample.latitude, let lon2 = sample.longitude {
+                        let dtSeconds = (Double(epoch) - Double(prevEpoch)) / 1000
+                        if dtSeconds > 0, dtSeconds < 2 {
+                            distanceMetres += CaptureAnalyzer.distance(lat1, lon1, lat2, lon2)
+                        }
+                    }
+                }
+                if previousEpoch?.gnssEpochMs != epoch {
+                    previousEpoch = sample
+                    compareSpeedWithPosition(t: t, epoch: epoch, sample: sample)
+                }
             }
-            if let rangeProblem {
+
+            // At rest the accelerometer should read one gravity and the gyros
+            // should read nothing — the cleanest IMU sanity test available.
+            if let speed = sample.groundSpeedMs, speed < CaptureAnalyzer.stationarySpeedMs,
+               let a = sample.accelG {
+                restAccelStats.add((a.x * a.x + a.y * a.y + a.z * a.z).squareRoot())
+                if let g = sample.gyroDps {
+                    restGyroStats.add((g.x * g.x + g.y * g.y + g.z * g.z).squareRoot())
+                }
+            }
+
+            if let rangeProblem = sample.rangeProblem {
                 rangeViolations += 1
                 if firstRangeViolation == nil {
                     firstRangeViolation = t
@@ -557,15 +703,62 @@ nonisolated enum CaptureAnalyzer {
             }
         }
 
+        /// Judges the reported speed against how far the position moved, over a
+        /// stretch of about a second rather than from one fix to the next. At
+        /// 20 Hz a quarter metre of ordinary position noise between two fixes
+        /// reads as several m/s, so a pair-by-pair comparison flags noise; over
+        /// a second the same noise is a fraction of a m/s. The stretch is
+        /// measured on the GNSS epoch clock, so a device that sends frames
+        /// faster than it solves, or a Bluetooth stall, doesn't change it.
+        private mutating func compareSpeedWithPosition(t: Double, epoch: UInt32, sample: AnalysisSample) {
+            guard sample.hasFix, let lat = sample.latitude, let lon = sample.longitude,
+                  let speed = sample.groundSpeedMs else {
+                speedWindow = nil           // no fix: the stretch is broken
+                return
+            }
+            guard var window = speedWindow else {
+                speedWindow = SpeedWindow(epoch: epoch, latitude: lat, longitude: lon,
+                                          speedSum: speed, accuracySum: sample.speedAccuracyMs ?? 0, count: 1)
+                return
+            }
+            window.speedSum += speed
+            window.accuracySum += sample.speedAccuracyMs ?? 0
+            window.count += 1
+
+            let dtMs = Double(epoch) - Double(window.epoch)
+            guard dtMs >= CaptureAnalyzer.speedWindowMs else {
+                speedWindow = window
+                return
+            }
+            // A stretch with a hole in it (a stall) says nothing: start again.
+            if dtMs <= CaptureAnalyzer.speedWindowMs * 2.5 {
+                let implied = CaptureAnalyzer.distance(window.latitude, window.longitude, lat, lon) / (dtMs / 1000)
+                let reported = window.speedSum / Double(window.count)
+                // Generous: only gross disagreement counts.
+                let allowance = max(window.accuracySum / Double(window.count) * 5, 3.0) + reported * 0.5
+                speedSamples += 1
+                if abs(implied - reported) > allowance {
+                    speedMismatches += 1
+                    if firstSpeedMismatch == nil {
+                        firstSpeedMismatch = t
+                        speedMismatchExample = String(
+                            format: "position implies %.1f m/s, packet reports %.1f m/s (over %.1f s)",
+                            implied, reported, dtMs / 1000)
+                    }
+                }
+            }
+            speedWindow = SpeedWindow(epoch: epoch, latitude: lat, longitude: lon,
+                                      speedSum: speed, accuracySum: sample.speedAccuracyMs ?? 0, count: 1)
+        }
+
         // MARK: Track
 
-        private mutating func ingestTrack(t: Double, packet: RaceBoxPacket) {
-            guard packet.hasValidFix else { return }
+        private mutating func ingestTrack(t: Double, sample: AnalysisSample) {
+            guard sample.hasFix, let lat = sample.latitude, let lon = sample.longitude else { return }
             trackCounter += 1
             guard trackCounter % trackStride == 0 else { return }
-            track.append(TrackPoint(t: t, latitude: packet.latitude,
-                                    longitude: packet.longitude,
-                                    speedKmh: packet.movingSpeedKmh))
+            track.append(TrackPoint(t: t, latitude: lat, longitude: lon,
+                                    speedKmh: sample.movingSpeedKmh ?? 0))
             // Halve the resolution rather than grow without bound, the same way
             // the series accumulators do.
             if track.count >= CaptureAnalyzer.maxTrackPoints {
@@ -583,8 +776,8 @@ nonisolated enum CaptureAnalyzer {
             flushPending()
 
             // A session that never dropped a fix has its clean run still open.
-            if let startITOW = cleanRunStartITOW, let lastITOW, let start = cleanRunStart {
-                let duration = (Double(lastITOW) - Double(startITOW)) / 1000
+            if let startClock = cleanRunStartClock, let lastClock, let start = cleanRunStart {
+                let duration = (Double(lastClock) - Double(startClock)) / 1000
                 if duration > longestCleanRun {
                     longestCleanRun = duration
                     longestCleanRunStart = start
@@ -596,8 +789,8 @@ nonisolated enum CaptureAnalyzer {
             sHAcc.finalize(); sArrival.finalize(); sSpeed.finalize(); sDrift.finalize()
 
             let hostDuration = (lastT ?? 0) - (firstT ?? 0)
-            let deviceDuration = firstITOW.flatMap { first in
-                lastITOW.map { (Double($0) - Double(first)) / 1000 }
+            let deviceDuration = firstClock.flatMap { first in
+                lastClock.map { (Double($0) - Double(first)) / 1000 }
             } ?? 0
 
             let expected = packets + missedFixes
@@ -613,6 +806,7 @@ nonisolated enum CaptureAnalyzer {
                 trailer: trailer,
                 summary: .init(
                     packetsReceived: packets,
+                    framesWithoutEpoch: framesWithoutEpoch,
                     undecodableLines: undecodableLines,
                     expectedPackets: expected,
                     missedFixes: missedFixes,
@@ -676,27 +870,45 @@ nonisolated enum CaptureAnalyzer {
         private func buildChecks() -> [ConsistencyCheck] {
             var checks: [ConsistencyCheck] = []
 
-            let itowFailures = itowBackwards + itowDuplicate
+            let clockFailures = clockBackwards + clockDuplicate
             checks.append(ConsistencyCheck(
-                id: "itow-monotonic",
-                title: "iTOW sequence",
-                detail: "Time-of-week must increase on every fix; duplicates and backward steps indicate the device restated or reordered a fix.",
-                status: itowFailures == 0 ? .pass : .fail,
-                failures: itowFailures, samples: max(packets - 1, 0),
-                firstFailureAt: firstITOWViolation, example: itowViolationExample))
+                id: isGnimu ? "clock-monotonic" : "itow-monotonic",
+                title: isGnimu ? "Device time sequence" : "iTOW sequence",
+                detail: isGnimu
+                    ? "Device time must increase on every frame; duplicates and backward steps indicate the device repeated a frame or restarted."
+                    : "Time-of-week must increase on every fix; duplicates and backward steps indicate the device restated or reordered a fix.",
+                status: clockFailures == 0 ? .pass : .fail,
+                failures: clockFailures, samples: max(packets - 1, 0),
+                firstFailureAt: firstClockViolation, example: clockViolationExample))
+
+            if isGnimu {
+                let problems = sequenceLost + sequenceOther
+                checks.append(ConsistencyCheck(
+                    id: "frame-sequence",
+                    title: "Frame sequence",
+                    detail: "The frame counter must go up by one on every frame; a gap is a frame the device sent and the app never received.",
+                    status: problems == 0 ? .pass
+                        : (problems > sequenceSamples / 100 ? .fail : .warn),
+                    failures: problems, samples: sequenceSamples,
+                    firstFailureAt: firstSequenceProblem, example: sequenceExample))
+            }
 
             checks.append(ConsistencyCheck(
                 id: "frame-integrity",
                 title: "Frame integrity",
-                detail: "Every line must hold a complete 88-byte frame with a valid RaceBox checksum.",
+                detail: isGnimu
+                    ? "Every line must hold a complete 140-byte Gnimu frame of a spec version this app reads."
+                    : "Every line must hold a complete 88-byte frame with a valid RaceBox checksum.",
                 status: undecodableLines == 0 ? .pass : (undecodableLines > packets / 100 ? .fail : .warn),
                 failures: undecodableLines, samples: packets + undecodableLines,
                 firstFailureAt: nil, example: nil))
 
             checks.append(ConsistencyCheck(
                 id: "clock-fields",
-                title: "Clock field agreement",
-                detail: "The packet's broken-out UTC clock must match the instant its own iTOW describes, allowing for the 18-second GPS-UTC offset.",
+                title: isGnimu ? "UTC against device time" : "Clock field agreement",
+                detail: isGnimu
+                    ? "The GNSS UTC timestamp must advance in step with the device clock; a steady offset between them, to within half a second, means both are sound."
+                    : "The packet's broken-out UTC clock must match the instant its own iTOW describes, allowing for the 18-second GPS-UTC offset.",
                 status: clockFieldSamples == 0 ? .notApplicable
                     : (clockFieldMismatches == 0 ? .pass
                        : (clockFieldMismatches > clockFieldSamples / 100 ? .fail : .warn)),

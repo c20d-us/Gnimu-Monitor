@@ -20,7 +20,7 @@ import SwiftUI
 /// satellite count alongside GNSS status (fix type, pDOP, battery).
 struct GlanceBox: View {
     let telemetry: TelemetryState?
-    /// Live iTOW fix rate and its health, shown small along the bottom edge.
+    /// Live fix rate and its health, shown small along the bottom edge.
     let fixRate: FixRateReading
     @AppStorage("speedUnit") private var speedUnit: SpeedUnit = .kmh
 
@@ -64,11 +64,11 @@ struct GlanceBox: View {
                 .foregroundStyle(fixColor)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
 
-            // Bottom-center: iTOW fix rate — parked on the bottom edge, clear of
+            // Bottom-center: fix rate — parked on the bottom edge, clear of
             // the speed units, where it reads as its own value. Tinted amber or
             // red when the device isn't holding its cadence; otherwise it stays
             // quiet, so colour here always means something is off.
-            Text(String(format: "%.1f Hz iTOW", fixRate.hz))
+            Text(String(format: "%.0f Hz", fixRate.hz))
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .contentTransition(.numericText())

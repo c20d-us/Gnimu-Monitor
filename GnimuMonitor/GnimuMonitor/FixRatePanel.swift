@@ -17,8 +17,8 @@
 import SwiftUI
 import Charts
 
-/// Real-time GNSS fix-rate monitor. Big iTOW rate readout on top, then two
-/// stacked charts — iTOW rate over the last minute above, SV count below.
+/// Real-time GNSS fix-rate monitor. Big fix-rate readout on top, then two
+/// stacked charts — fix rate over the last minute above, SV count below.
 struct FixRatePanel: View {
     @ObservedObject var ble: BLEManager
 
@@ -36,13 +36,15 @@ struct FixRatePanel: View {
     private var content: some View {
         VStack(spacing: 16) {
             VStack(spacing: 2) {
-                Text(String(format: "%.1f", ble.fixRate.hz))
-                    .font(.system(size: 56, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-                Text("Hz iTOW")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(String(format: "%.0f", ble.fixRate.hz))
+                        .font(.system(size: 56, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                    Text("Hz")
+                        .font(.system(size: 24, weight: .medium, design: .rounded))
+                        .foregroundStyle(.secondary)
+                }
                 Text(statusLine)
                     .font(.caption2)
                     .foregroundStyle(ble.fixRate.status.tint)

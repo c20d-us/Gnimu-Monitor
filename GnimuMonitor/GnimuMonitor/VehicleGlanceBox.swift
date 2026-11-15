@@ -86,7 +86,7 @@ struct VehicleGlanceBox: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
 
             // Quiet while the stream holds its rate, amber or red when it doesn't.
-            Text(String(format: "%.1f Hz", streamHealth.hz))
+            Text(String(format: "%.0f Hz", streamHealth.hz))
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .contentTransition(.numericText())

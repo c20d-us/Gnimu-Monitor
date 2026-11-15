@@ -16,6 +16,7 @@
 //
 
 import Foundation
+@testable import Gnimu_Monitor
 
 struct SyntheticCapture {
 
@@ -245,13 +246,13 @@ struct SyntheticCapture {
     // MARK: - Lines
 
     private static func frameLine(t: Double, data: Data) -> String {
-        "{\"t\":\(String(format: "%.4f", t)),\"d\":\"\(data.base64EncodedString())\"}"
+        CaptureLines.frame(t: t, data: data)
     }
 
     private func headerLine() -> String {
         json([
             "type": "header",
-            "schema": 1,
+            "schema": captureSchemaVersion,
             "format": "gnimu-capture-jsonl",
             "sessionId": "00000000-0000-0000-0000-000000000001",
             "startedAt": Self.startedAt,
@@ -262,10 +263,7 @@ struct SyntheticCapture {
                 "platform": "macOS", "systemVersion": "Test OS", "model": "TestMac",
                 "lowPowerMode": false, "thermalState": "nominal",
             ],
-            "capture": [
-                "protocol": "racebox", "frameBytes": 88, "encoding": "base64",
-                "timeBase": "seconds since startedAt, monotonic", "nominalHz": hz,
-            ],
+            "capture": CaptureLines.captureBlock(for: .raceBox, nominalHz: hz),
         ])
     }
 

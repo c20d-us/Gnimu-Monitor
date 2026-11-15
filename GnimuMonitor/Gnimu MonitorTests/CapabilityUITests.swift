@@ -58,11 +58,11 @@ struct DeviceProfileTests {
         #expect(!p.mapIsPrimary)
     }
 
-    @Test func gnssFromTheGnimuProtocolHasNoReceiverClock() {
+    @Test func gnssFromTheGnimuProtocolStillGetsFixRate() {
         let s = state { $0.header = header; $0.gnss = GnssBlock(); $0.imu = ImuBlock() }
         let p = DeviceProfile(telemetry: s, deviceProtocol: .gnimu)
         #expect(p.hasGnss && p.hasImu && p.hasStreamHeader)
-        #expect(!p.hasReceiverClock)                    // no iTOW in the protocol
+        #expect(p.hasReceiverClock)                     // rate comes from solution arrival time
     }
 }
 
@@ -81,11 +81,24 @@ struct PanelListTests {
 
     @Test func aRaceBoxDeviceGetsExactlyTheOriginalPanels() {
         #expect(MonitorPanel.stripTabs(profile: raceBox, hasDevice: false) == [.data, .fixRate, .level, .capture])
-        #expect(MonitorPanel.stripTabs(profile: raceBox, hasDevice: true) == [.data, .fixRate, .level, .capture, .device])
+        #expect(MonitorPanel.stripTabs(profile: raceBox, hasDevice: true) == [.data, .fixRate, .level, .device, .capture])
         #expect(MonitorPanel.deckPages(profile: raceBox, hasDevice: false)
                 == [.map, .data, .fixRate, .gForce, .level, .capture])
         #expect(MonitorPanel.deckPages(profile: raceBox, hasDevice: true)
-                == [.map, .data, .fixRate, .gForce, .level, .capture, .device])
+                == [.map, .data, .fixRate, .gForce, .level, .device, .capture])
+    }
+
+    @Test func captureIsAlwaysTheLastPanel() {
+        let profiles = [raceBox,
+                        profile(vehicle: true, header: true),
+                        profile(gnss: true, imu: true, vehicle: true, header: true),
+                        DeviceProfile()]
+        for p in profiles {
+            for hasDevice in [false, true] {
+                #expect(MonitorPanel.stripTabs(profile: p, hasDevice: hasDevice).last == .capture)
+                #expect(MonitorPanel.deckPages(profile: p, hasDevice: hasDevice).last == .capture)
+            }
+        }
     }
 
     @Test func aCANOnlyDeviceGetsVehicleStreamAndCapture() {

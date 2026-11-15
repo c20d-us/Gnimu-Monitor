@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #if DEBUG
+import CoreBluetooth
 import Foundation
 
 /// A capture file read for replay: the frames exactly as they were recorded,
@@ -31,17 +32,22 @@ nonisolated struct ReplayCapture {
     struct Frame {
         /// Seconds since the capture began, as recorded.
         let t: Double
+        /// The stream it was recorded on, which names the characteristic it is
+        /// replayed to.
+        let stream: String
         let data: Data
     }
 
     enum LoadError: LocalizedError {
         case unreadable(String)
         case noFrames
+        case unsupported(Error)
 
         var errorDescription: String? {
             switch self {
             case .unreadable(let why): return "Couldn't read the capture: \(why)"
             case .noFrames: return "The capture holds no frames to replay."
+            case .unsupported(let error): return error.localizedDescription
             }
         }
     }
@@ -49,6 +55,13 @@ nonisolated struct ReplayCapture {
     let deviceProtocol: DeviceProtocol
     let deviceName: String?
     let frames: [Frame]
+    /// The characteristic each stream was recorded from, by stream name.
+    let characteristics: [String: CBUUID]
+    /// What the device reported about itself, restored so the Device panel and
+    /// the channel names work as they did live.
+    let identity: DeviceIdentity
+    let schemaJSON: Data?
+    let infoJSON: Data?
 
     /// Reads the whole file. Lines that aren't JSON, or aren't frames, are
     /// skipped: a replay shows what decodes, and the analyzer is the place
@@ -61,8 +74,7 @@ nonisolated struct ReplayCapture {
             throw LoadError.unreadable(error.localizedDescription)
         }
 
-        var deviceProtocol = DeviceProtocol.raceBox
-        var deviceName: String?
+        var header: CaptureHeader?
         var frames: [Frame] = []
 
         for line in contents.split(separator: 0x0A) {
@@ -71,27 +83,38 @@ nonisolated struct ReplayCapture {
 
             switch dict["type"] as? String {
             case "header":
-                if let capture = dict["capture"] as? [String: Any],
-                   let raw = capture["protocol"] as? String,
-                   let known = DeviceProtocol(rawValue: raw) {
-                    deviceProtocol = known
-                }
-                if let device = dict["device"] as? [String: Any] {
-                    deviceName = device["name"] as? String
-                }
+                let parsed = CaptureReader.parseHeader(dict)
+                do { try CaptureReader.validate(parsed) } catch { throw LoadError.unsupported(error) }
+                header = parsed
             case nil:
                 if let t = dict["t"] as? Double,
+                   let stream = dict["c"] as? String,
                    let encoded = dict["d"] as? String,
                    let bytes = Data(base64Encoded: encoded) {
-                    frames.append(Frame(t: t, data: bytes))
+                    frames.append(Frame(t: t, stream: stream, data: bytes))
                 }
             default:
                 continue   // a summary line, or a typed line from a newer schema
             }
         }
 
+        guard let header, let name = header.protocolName,
+              let deviceProtocol = DeviceProtocol(rawValue: name) else {
+            throw LoadError.unsupported(CaptureReadError.missingHeader)
+        }
+        // Each stream goes back to the characteristic it was recorded from;
+        // one the header doesn't give falls back to the protocol's own.
+        var characteristics: [String: CBUUID] = [:]
+        for stream in deviceProtocol.captureStreams { characteristics[stream.name] = stream.characteristic }
+        for stream in header.streams {
+            if let uuid = stream.characteristic { characteristics[stream.name] = CBUUID(string: uuid) }
+        }
+        frames = frames.filter { characteristics[$0.stream] != nil }
         guard !frames.isEmpty else { throw LoadError.noFrames }
-        return ReplayCapture(deviceProtocol: deviceProtocol, deviceName: deviceName, frames: frames)
+        return ReplayCapture(deviceProtocol: deviceProtocol, deviceName: header.deviceName,
+                             frames: frames, characteristics: characteristics,
+                             identity: header.identity, schemaJSON: header.deviceSchemaJSON,
+                             infoJSON: header.deviceInfoJSON)
     }
 }
 #endif

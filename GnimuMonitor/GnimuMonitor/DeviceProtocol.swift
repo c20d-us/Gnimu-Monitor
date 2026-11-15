@@ -58,6 +58,34 @@ nonisolated enum DeviceProtocol: String, CaseIterable {
         }
     }
 
+    /// One stream of frames a protocol sends, as a capture file names it.
+    struct CaptureStream: Equatable {
+        /// What the capture calls the stream: short, stable, readable in the file.
+        let name: String
+        let characteristic: CBUUID
+        /// Size of one recorded frame.
+        let frameBytes: Int
+    }
+
+    /// The streams a capture of this protocol holds. Both protocols send one
+    /// stream of frames today; a protocol that splits its data across several
+    /// characteristics lists one per characteristic it records.
+    var captureStreams: [CaptureStream] {
+        switch self {
+        case .raceBox:
+            return [CaptureStream(name: "frame", characteristic: notifyCharacteristicUUIDs[0],
+                                  frameBytes: frameBytes)]
+        case .gnimu:
+            return [CaptureStream(name: "frame", characteristic: Self.gnimuFrameCharacteristicUUID,
+                                  frameBytes: frameBytes)]
+        }
+    }
+
+    /// The capture stream a notification on `characteristic` belongs to.
+    func captureStreamName(for characteristic: CBUUID) -> String? {
+        captureStreams.first { $0.characteristic == characteristic }?.name
+    }
+
     /// Size of one frame as captures store it.
     var frameBytes: Int {
         switch self {
@@ -137,8 +165,8 @@ extension DeviceProtocol.Identification {
 nonisolated struct DecodedFrame {
     let raw: Data
     let update: TelemetryUpdate
-    /// The receiver's own stamp for the epoch this frame carries, in ms, for
-    /// protocols that have one (RaceBox's iTOW). The fix-rate tracker reads it.
+    /// A stamp for the GNSS epoch this frame carries, in ms: RaceBox's iTOW, or
+    /// the Gnimu receiver's UTC timestamp. The fix-rate tracker reads it.
     let gnssEpochMs: UInt32?
 }
 
@@ -160,7 +188,7 @@ nonisolated protocol ProtocolSession {
 }
 
 extension ProtocolSession {
-    var rejectedNotifications: Int { 0 }
+    nonisolated var rejectedNotifications: Int { 0 }
 }
 
 /// The Gnimu protocol's session. Each notification on the frame characteristic
@@ -175,7 +203,8 @@ nonisolated struct GnimuFrameSession: ProtocolSession {
         guard characteristic == DeviceProtocol.gnimuFrameCharacteristicUUID else { return [] }
         do {
             let frame = try GnimuFrameV1.Frame(bytes)
-            return [DecodedFrame(raw: bytes, update: frame.telemetryUpdate, gnssEpochMs: nil)]
+            return [DecodedFrame(raw: bytes, update: frame.telemetryUpdate,
+                                 gnssEpochMs: Self.epochMs(of: frame))]
         } catch {
             rejected += 1
             return []
@@ -185,6 +214,18 @@ nonisolated struct GnimuFrameSession: ProtocolSession {
     mutating func reset() { rejected = 0 }
 
     var rejectedNotifications: Int { rejected }
+
+    /// The GNSS epoch this frame carries, as the receiver's own UTC timestamp
+    /// in ms (modulo 2^32, since only differences matter). The receiver steps
+    /// it by exactly one period per solution, which makes it as good a
+    /// cadence reference as RaceBox's iTOW, whereas the frame's device time is
+    /// stamped as it is sent and wobbles. Frames that repeat a solution share
+    /// the value. Nil when the frame has no GNSS block or no valid timestamp.
+    static func epochMs(of frame: GnimuFrameV1.Frame) -> UInt32? {
+        guard frame.capabilities.contains(.gnss),
+              let utc = frame.value(.utcTimestamp), utc.isFinite, utc >= 0 else { return nil }
+        return UInt32(truncatingIfNeeded: Int64(utc.rounded()))
+    }
 }
 
 /// Reassembles RaceBox packets: finds the B5 62 sync, takes 88 bytes, and

@@ -96,10 +96,15 @@ struct AnalysisPanel: View {
     private func row(_ capture: CaptureFile) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(capture.recordedAt.map {
-                    $0.formatted(date: .abbreviated, time: .shortened)
-                } ?? capture.displayName)
-                    .font(.subheadline.weight(.medium))
+                HStack(spacing: 8) {
+                    Text(capture.recordedAt.map {
+                        $0.formatted(date: .abbreviated, time: .shortened)
+                    } ?? capture.displayName)
+                        .font(.subheadline.weight(.medium))
+                    if let deviceProtocol = capture.deviceProtocol {
+                        ProtocolChip(deviceProtocol: deviceProtocol)
+                    }
+                }
 
                 // Badges lead, each in a fixed-width slot that's reserved even
                 // when the badge is absent. That keeps every icon — and the
@@ -151,6 +156,8 @@ struct AnalysisPanel: View {
                     .frame(width: 40, height: 40)
                     .contentShape(Rectangle())
             }
+            // Borderless, or the Mac draws it as a shaded button.
+            .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .frame(width: 44)
             #endif

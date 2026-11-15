@@ -117,6 +117,22 @@ struct FixRateTrackerTests {
 
     // MARK: - Missed, late and interrupted fixes
 
+    @Test(arguments: [(100.0, 10.0), (40.0, 25.0)])
+    func aStampWithAFewMsOfJitterStillEstablishesTheRate(periodMs: Double, expectedHz: Double) {
+        // The Gnimu protocol's stamp is a solution arrival time, so consecutive
+        // epochs wobble by a few ms around the true period.
+        var feed = Feed()
+        let wobble: [Double] = [-2, 3, -1, 2, 0, -3, 1, 2]
+        var reading = FixRateReading.empty
+        for i in 1...40 {
+            feed.fix(itowAdvanceMs: periodMs + wobble[i % wobble.count], arrivalAdvanceMs: periodMs)
+            if i % 10 == 0 { reading = feed.evaluate() }
+        }
+        #expect(reading.status == .onRate)
+        #expect(near(reading.nominalHz ?? 0, expectedHz))
+        #expect(abs(reading.hz - expectedHz) < expectedHz * 0.05)
+    }
+
     @Test func oneMissedFixIsCountedAndMarksTheStreamDegraded() {
         var feed = Feed()
         feed.establish()

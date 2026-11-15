@@ -88,7 +88,7 @@ struct ReplayCaptureTests {
         #expect(throws: ReplayCapture.LoadError.self) { try ReplayCapture.load(url: url) }
     }
 
-    @Test func anUnknownProtocolNameFallsBackToRaceBox() throws {
+    @Test func anUnknownProtocolNameIsRefused() throws {
         var capture = SyntheticCapture()
         capture.seconds = 1
         let text = String(decoding: capture.data(), as: UTF8.self)
@@ -97,7 +97,7 @@ struct ReplayCaptureTests {
             .appendingPathComponent("replay-test-\(UUID().uuidString).jsonl")
         try Data(text.utf8).write(to: url)
         defer { try? FileManager.default.removeItem(at: url) }
-        #expect(try ReplayCapture.load(url: url).deviceProtocol == .raceBox)
+        #expect(throws: ReplayCapture.LoadError.self) { try ReplayCapture.load(url: url) }
     }
 }
 
@@ -150,14 +150,6 @@ struct GnimuReplayTests {
         // The sequence counts up by one a frame.
         let sequences = states.compactMap { $0.state.header?.sequence }
         #expect(zip(sequences, sequences.dropFirst()).allSatisfy { UInt8(truncatingIfNeeded: Int($0) + 1) == $1 })
-    }
-
-    @Test func aGnimuCaptureIsNotAnalysedAsRaceBox() throws {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("replay-test-\(UUID().uuidString).jsonl")
-        try SyntheticGnimuCapture().data().write(to: url)
-        defer { try? FileManager.default.removeItem(at: url) }
-        #expect(throws: CaptureReadError.self) { try CaptureAnalyzer.analyze(url: url) }
     }
 }
 

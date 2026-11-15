@@ -15,20 +15,39 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 import Combine
+import CoreBluetooth
 import Foundation
 #if canImport(UIKit)
 import UIKit
 #endif
 
 /// Capture-file format version. Bump when the line schema changes so readers
-/// can tell which shape they're looking at.
-private let captureSchemaVersion = 1
+/// can tell which shape they're looking at. See docs/capture-format.md.
+nonisolated let captureSchemaVersion = 2
 
-/// One captured frame: the raw RaceBox bytes plus when they reached us.
+/// What a line in the file is: one validated frame, after reassembly.
+nonisolated let captureUnit = "frame"
+
+/// One captured frame: the raw bytes plus when they reached us.
 private struct RecordedFrame: Sendable {
     /// Seconds since the session started, from the monotonic system clock.
     let t: Double
+    /// Which of the protocol's streams it came from (`CaptureStream.name`).
+    let stream: String
     let data: Data
+}
+
+/// What the connected device has said about itself, for the capture header, so
+/// a capture can be read later without the device. Fields the device hasn't
+/// reported yet are absent.
+nonisolated struct CapturedDeviceInfo: Sendable {
+    var identity = DeviceIdentity()
+    /// The Gnimu Schema characteristic's JSON, as the device sent it.
+    var schemaJSON: Data?
+    /// The Gnimu Device info characteristic's JSON, as the device sent it.
+    var infoJSON: Data?
+
+    static let none = CapturedDeviceInfo()
 }
 
 /// Where a finished capture ended up.
@@ -95,6 +114,7 @@ private final class LogWriter: @unchecked Sendable {
                 // Hand-built rather than JSONEncoder: this runs for every packet
                 // of a multi-hour session, and the shape is two fixed keys.
                 let line = "{\"t\":\(String(format: "%.4f", frame.t))," +
+                           "\"c\":\"\(frame.stream)\"," +
                            "\"d\":\"\(frame.data.base64EncodedString())\"}\n"
                 blob.append(contentsOf: Array(line.utf8))
             }
@@ -201,6 +221,15 @@ final class SessionRecorder: ObservableObject {
     private let maxPendingFrames = 512
 
     private var writer: LogWriter?
+    /// Per stream, what has been recorded.
+    private var streamPackets: [String: Int] = [:]
+    private var streamBytes: [String: Int] = [:]
+    /// How many notifications the live session has dropped as invalid so far;
+    /// the capture reports the number dropped while it ran.
+    var rejectedNotifications: () -> Int = { 0 }
+    private var rejectedAtStart = 0
+    /// What is waiting for a capture to be filed; see `whenIdle`.
+    private var idleWaiters: [() -> Void] = []
     private var pending: [RecordedFrame] = []
     private var flushTimer: Timer?
     /// Monotonic reference for frame timestamps; unaffected by clock changes.
@@ -242,7 +271,7 @@ final class SessionRecorder: ObservableObject {
     }
 
     func start(deviceName: String?, peripheralID: String?, nominalHz: Double?,
-               deviceProtocol: DeviceProtocol) {
+               deviceProtocol: DeviceProtocol, deviceInfo: CapturedDeviceInfo = .none) {
         guard !isRecording else { return }
 
         sessionID = UUID()
@@ -250,12 +279,15 @@ final class SessionRecorder: ObservableObject {
         startUptime = ProcessInfo.processInfo.systemUptime
         packetCount = 0
         capturedBytes = 0
+        streamPackets = [:]
+        streamBytes = [:]
+        rejectedAtStart = rejectedNotifications()
         errorMessage = nil
         lastCapture = nil
 
         let header = headerLine(startedAt: now, deviceName: deviceName,
                                 peripheralID: peripheralID, nominalHz: nominalHz,
-                                deviceProtocol: deviceProtocol)
+                                deviceProtocol: deviceProtocol, deviceInfo: deviceInfo)
         do {
             // Written to a scratch directory first: appending 25 times a second
             // directly inside the iCloud container would have the sync daemon
@@ -291,11 +323,17 @@ final class SessionRecorder: ObservableObject {
         let packets = packetCount
         let bytes = capturedBytes
         let duration = ProcessInfo.processInfo.systemUptime - startUptime
-        let trailer = trailerLine(packets: packets, bytes: bytes, duration: duration)
+        let trailer = trailerLine(packets: packets, bytes: bytes, duration: duration,
+                                  rejected: max(rejectedNotifications() - rejectedAtStart, 0))
 
         writer.finish(trailer: trailer) { [weak self] result in
             guard let self else { return }
             isFinishing = false
+            defer {
+                let waiters = idleWaiters
+                idleWaiters.removeAll()
+                waiters.forEach { $0() }
+            }
             switch result {
             case .success(let (url, destination, reason)):
                 lastCapture = CompletedCapture(url: url, destination: destination,
@@ -310,17 +348,31 @@ final class SessionRecorder: ObservableObject {
         startedAt = nil
     }
 
+    /// Runs `block` once nothing is being recorded or filed. A capture in
+    /// progress is stopped, and `block` runs when its file has landed (or the
+    /// save has failed), so the app can quit without losing the capture.
+    func whenIdle(_ block: @escaping () -> Void) {
+        if isRecording { stop() }
+        if isFinishing {
+            idleWaiters.append(block)
+        } else {
+            block()
+        }
+    }
+
     // MARK: - Capture
 
     /// Called from the BLE delegate for every validated frame. Does the least
     /// work that will do — one array append — so the packet path stays clear;
     /// encoding and disk I/O happen on the writer queue at flush time.
-    func record(frame: Data) {
+    func record(frame: Data, stream: String) {
         guard isRecording else { return }
         pending.append(RecordedFrame(t: ProcessInfo.processInfo.systemUptime - startUptime,
-                                     data: frame))
+                                     stream: stream, data: frame))
         packetCount += 1
         capturedBytes += frame.count
+        streamPackets[stream, default: 0] += 1
+        streamBytes[stream, default: 0] += frame.count
         if pending.count >= maxPendingFrames { flush() }
     }
 
@@ -362,16 +414,38 @@ final class SessionRecorder: ObservableObject {
     /// much less than one you can.
     private func headerLine(startedAt: Date, deviceName: String?,
                             peripheralID: String?, nominalHz: Double?,
-                            deviceProtocol: DeviceProtocol) -> Data {
+                            deviceProtocol: DeviceProtocol, deviceInfo: CapturedDeviceInfo) -> Data {
         var device: [String: Any] = [:]
         if let deviceName { device["name"] = deviceName }
+
+        // What the device says about itself, so the capture can be read, and
+        // replayed, without the device. The serial number is the device's, not
+        // the phone's, and travels with the file when it is shared.
+        var identity: [String: String] = [:]
+        let id = deviceInfo.identity
+        for (key, value) in [("manufacturer", id.manufacturer), ("model", id.model),
+                             ("serial", id.serial), ("firmware", id.firmware),
+                             ("hardware", id.hardware)] {
+            if let value, !value.isEmpty { identity[key] = value }
+        }
+        if !identity.isEmpty { device["identity"] = identity }
+        if let json = deviceInfo.schemaJSON,
+           let object = try? JSONSerialization.jsonObject(with: json) { device["schema"] = object }
+        if let json = deviceInfo.infoJSON,
+           let object = try? JSONSerialization.jsonObject(with: json) { device["info"] = object }
         // Note: iOS peripheral identifiers are per-install, not device serials —
         // they identify a device within one install of the app, nothing more.
         if let peripheralID { device["peripheralId"] = peripheralID }
 
         var capture: [String: Any] = [
             "protocol": deviceProtocol.rawValue,
-            "frameBytes": deviceProtocol.frameBytes,
+            // What a line is, and which streams the file holds. Each line's
+            // "c" names one of them.
+            "unit": captureUnit,
+            "streams": deviceProtocol.captureStreams.map {
+                ["name": $0.name, "characteristic": $0.characteristic.uuidString,
+                 "frameBytes": $0.frameBytes] as [String: Any]
+            },
             "encoding": "base64",
             // Says how to read the "t" on every packet line.
             "timeBase": "seconds since startedAt, monotonic"
@@ -410,9 +484,18 @@ final class SessionRecorder: ObservableObject {
 
     /// The last line, written on a clean stop. Its absence is meaningful: a
     /// capture with no trailer was interrupted rather than stopped.
-    private func trailerLine(packets: Int, bytes: Int, duration: TimeInterval) -> Data {
-        Self.jsonLine([
+    private func trailerLine(packets: Int, bytes: Int, duration: TimeInterval,
+                             rejected: Int) -> Data {
+        var streams: [String: Any] = [:]
+        for (name, count) in streamPackets {
+            streams[name] = ["packets": count, "rawBytes": streamBytes[name] ?? 0]
+        }
+        return Self.jsonLine([
             "type": "summary",
+            "streams": streams,
+            // Notifications the app dropped as not valid frames while the
+            // capture ran. They are not in the file.
+            "rejected": rejected,
             "sessionId": sessionID.uuidString,
             "endedAt": Self.iso8601.string(from: Date()),
             "durationSeconds": (duration * 1000).rounded() / 1000,

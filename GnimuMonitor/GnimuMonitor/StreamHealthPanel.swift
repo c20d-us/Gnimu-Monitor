@@ -31,13 +31,15 @@ struct StreamHealthPanel: View {
     private var content: some View {
         VStack(spacing: 14) {
             VStack(spacing: 2) {
-                Text(String(format: "%.1f", health.hz))
-                    .font(.system(size: 56, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-                Text("frames per second, by the device's clock")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(String(format: "%.0f", health.hz))
+                        .font(.system(size: 56, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                    Text("Hz")
+                        .font(.system(size: 24, weight: .medium, design: .rounded))
+                        .foregroundStyle(.secondary)
+                }
                 Text(statusLine)
                     .font(.caption2)
                     .foregroundStyle(health.status.tint)
@@ -101,19 +103,14 @@ struct StreamHealthPanel: View {
         let channels = VehicleChannel.all.filter {
             $0.read(vehicle) != nil || (filled?.contains($0.key) ?? false) || ble.channelRates[$0.key] != nil
         }
-        return VStack(alignment: .leading, spacing: 6) {
-            section("Vehicle Channels") {
-                if channels.isEmpty {
-                    row("No channels yet", "")
-                }
-                ForEach(channels, id: \.key) { channel in
-                    row(channel.displayLabel(schema: ble.gnimuSchema),
-                        String(format: "%.1f changes/s", ble.channelRates[channel.key] ?? 0))
-                }
+        return section("Vehicle Channels") {
+            if channels.isEmpty {
+                row("No channels yet", "")
             }
-            Text("How often each value changed in the last few seconds. The device repeats the latest value of every channel in each frame, so this is the closest measure of how often the car is answering. A channel that holds steady, such as coolant temperature, reads zero.")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+            ForEach(channels, id: \.key) { channel in
+                row(channel.displayLabel(schema: ble.gnimuSchema),
+                    String(format: "%.1f changes/s", ble.channelRates[channel.key] ?? 0))
+            }
         }
     }
 

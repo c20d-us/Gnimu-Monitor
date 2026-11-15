@@ -19,8 +19,9 @@ import SwiftUI
 /// Default macOS window sizes for each screen.
 enum WindowSize {
     static let picker = CGSize(width: 400, height: 600)
-    // 4:3, matching iPad landscape so the Mac window feels like the same app.
-    static let monitor = CGSize(width: 1200, height: 900)
+    // Close to 4:3, like iPad landscape, but a little taller so the Data panel
+    // fits without scrolling.
+    static let monitor = CGSize(width: 1200, height: 960)
 }
 
 extension Scene {

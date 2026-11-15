@@ -18,7 +18,7 @@ import Foundation
 
 /// How temperatures are shown. The protocol and the model are Celsius; this is
 /// only presentation. Persisted via @AppStorage("temperatureUnit").
-enum TemperatureUnit: String, CaseIterable {
+nonisolated enum TemperatureUnit: String, CaseIterable {
     case celsius
     case fahrenheit
 
@@ -37,7 +37,7 @@ enum TemperatureUnit: String, CaseIterable {
 
 /// How pressures are shown. The protocol and the model are kPa. Persisted via
 /// @AppStorage("pressureUnit").
-enum PressureUnit: String, CaseIterable {
+nonisolated enum PressureUnit: String, CaseIterable {
     case kpa
     case psi
     case bar
@@ -74,7 +74,7 @@ enum PressureUnit: String, CaseIterable {
 }
 
 /// The units chosen for display, gathered so a formatter takes one value.
-struct DisplayUnits: Equatable {
+nonisolated struct DisplayUnits: Equatable {
     var speed: SpeedUnit = .kmh
     var temperature: TemperatureUnit = .celsius
     var pressure: PressureUnit = .kpa

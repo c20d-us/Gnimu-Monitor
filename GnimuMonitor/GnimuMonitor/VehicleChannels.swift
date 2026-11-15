@@ -60,7 +60,7 @@ nonisolated struct VehicleChannel: Sendable {
         case .pressure:         return units.pressure.text(fromKpa: value)
         case .degrees:          return String(format: "%.1f °", value)
         case .degreesPerSecond: return String(format: "%.1f °/s", value)
-        case .acceleration:     return String(format: "%.3f g", value)
+        case .acceleration:     return String(format: "%.2f g", value)
         case .pedal:            return value != 0 ? "Pressed" : "Released"
         case .gear:             return Self.gearText(Int(value))
         case .aux:

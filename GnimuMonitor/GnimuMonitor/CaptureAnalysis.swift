@@ -265,6 +265,10 @@ nonisolated struct CaptureAnalysis: Sendable {
     /// Tier 1: the headline numbers.
     struct Summary: Sendable {
         let packetsReceived: Int
+        /// Frames from a Gnimu GNSS device sent before the receiver had
+        /// resolved UTC, so they have no epoch and are left out of the
+        /// cadence figures. Always 0 for RaceBox and for a device without GNSS.
+        let framesWithoutEpoch: Int
         let undecodableLines: Int
         /// Received plus the fixes the device should have sent but didn't.
         let expectedPackets: Int
@@ -352,5 +356,27 @@ nonisolated struct CaptureAnalysis: Sendable {
         let arrivalDeltaMs: TimeSeries
         let speedKmh: TimeSeries
         let clockDriftMs: TimeSeries
+    }
+}
+
+// MARK: - What the capture holds
+
+nonisolated extension CaptureAnalysis {
+    /// The capture is in the Gnimu protocol, whose frames have no iTOW and
+    /// carry a counter.
+    var isGnimu: Bool { header.protocolName == DeviceProtocol.gnimu.rawValue }
+
+    /// The protocol's name as the report shows it, e.g. "Gnimu protocol".
+    /// Captures from before the protocol was recorded are RaceBox.
+    var protocolLabel: String { isGnimu ? "Gnimu protocol" : "RaceBox protocol" }
+
+    /// The device reported GNSS data. A CAN-only Gnimu device doesn't, and the
+    /// report leaves the GNSS sections out for it.
+    var hasGnss: Bool { !gnss.numSV.isEmpty || !gnss.fixTypeCounts.isEmpty }
+
+    /// What a unit of the cadence is called: a RaceBox packet is a fix; a
+    /// Gnimu frame is just a frame.
+    var unit: (singular: String, plural: String) {
+        isGnimu ? ("frame", "frames") : ("fix", "fixes")
     }
 }
