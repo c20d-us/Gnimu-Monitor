@@ -83,7 +83,7 @@ struct SyntheticGnimuCapture {
             "sessionId": "00000000-0000-0000-0000-000000000002",
             "startedAt": Self.startedAt, "timeZone": "UTC",
             "device": ["name": Self.deviceName, "peripheralId": "TEST-PERIPHERAL",
-                       "identity": ["manufacturer": "Gnimu", "model": "Gnimu-CAN", "serial": "0000000001",
+                       "identity": ["manufacturer": "Gnimu Labs", "model": "Gnimu-CAN", "serial": "0000000001",
                                     "firmware": "0.1.0", "hardware": "XIAO ESP32C6"],
                        "schema": ["v": 1, "d": "Gnimu-CAN", "r": 20, "fill": ["vehicle": 3, "power": 1]],
                        "info": ["v": 1, "build": ["rev": "abc1234", "target": "esp32c6"], "cfg": ["can_bitrate": 500000]]],

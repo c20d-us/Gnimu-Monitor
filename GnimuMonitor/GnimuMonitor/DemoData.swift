@@ -186,7 +186,7 @@ extension BLEManager {
         ble.presentAs(.gnimu)
         ble.selectedDeviceName = "Gnimu-CAN 1958745094"
         ble.telemetry = waiting ? .demoCANWaiting : .demoCAN
-        ble.deviceIdentity = DeviceIdentity(manufacturer: "Gnimu", model: "Gnimu-CAN", serial: "1958745094",
+        ble.deviceIdentity = DeviceIdentity(manufacturer: "Gnimu Labs", model: "Gnimu-CAN", serial: "1958745094",
                                             firmware: "0.1.0", hardware: "XIAO ESP32C6, 12V carrier v1.0")
         ble.gnimuSchema = GnimuSchema.parse(Data(
             #"{"v":1,"d":"Gnimu-CAN","r":20,"fill":{"vehicle":3,"power":1}}"#.utf8))

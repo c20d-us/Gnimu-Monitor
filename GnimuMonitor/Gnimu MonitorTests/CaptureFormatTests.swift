@@ -28,7 +28,7 @@ private enum Sample {
 
     static func text(frames: Int = 3, header: String? = nil) -> String {
         var lines = [header ?? """
-        {"app":{"build":"1","name":"Gnimu Monitor","version":"1.2"},"capture":{"encoding":"base64","nominalHz":20,"protocol":"gnimu","streams":[{"characteristic":"0752D3C3-CEAF-462F-A944-BCC06C57284B","frameBytes":140,"name":"frame"}],"timeBase":"seconds since startedAt, monotonic","unit":"frame"},"device":{"identity":{"firmware":"0.1.0","manufacturer":"Gnimu","model":"Gnimu-CAN","serial":"1958745094"},"info":{"build":{"rev":"9c1e4a7","target":"esp32c6","utc":"2026-11-10T18:22:05Z"},"cfg":{"can_bitrate":500000},"v":1},"name":"Gnimu-CAN 1958745094","peripheralId":"0A1B2C3D","schema":{"d":"Gnimu-CAN","fill":{"power":1,"vehicle":3},"r":20,"v":1}},"format":"gnimu-capture-jsonl","host":{"lowPowerMode":false,"model":"Mac14,2","platform":"macOS","systemVersion":"26","thermalState":"nominal"},"schema":2,"sessionId":"11111111-2222-3333-4444-555555555555","startedAt":"2026-11-15T18:00:00.000Z","timeZone":"UTC","type":"header"}
+        {"app":{"build":"1","name":"Gnimu Monitor","version":"1.2"},"capture":{"encoding":"base64","nominalHz":20,"protocol":"gnimu","streams":[{"characteristic":"0752D3C3-CEAF-462F-A944-BCC06C57284B","frameBytes":140,"name":"frame"}],"timeBase":"seconds since startedAt, monotonic","unit":"frame"},"device":{"identity":{"firmware":"0.1.0","manufacturer":"Gnimu Labs","model":"Gnimu-CAN","serial":"1958745094"},"info":{"build":{"rev":"9c1e4a7","target":"esp32c6","utc":"2026-11-10T18:22:05Z"},"cfg":{"can_bitrate":500000},"v":1},"name":"Gnimu-CAN 1958745094","peripheralId":"0A1B2C3D","schema":{"d":"Gnimu-CAN","fill":{"power":1,"vehicle":3},"r":20,"v":1}},"format":"gnimu-capture-jsonl","host":{"lowPowerMode":false,"model":"Mac14,2","platform":"macOS","systemVersion":"26","thermalState":"nominal"},"schema":2,"sessionId":"11111111-2222-3333-4444-555555555555","startedAt":"2026-11-15T18:00:00.000Z","timeZone":"UTC","type":"header"}
         """]
         for i in 0..<frames {
             var b = GnimuFrameBuilder()
@@ -218,7 +218,7 @@ struct RecorderFileTests {
     @Test func aRecordingWritesSchemaTwo() async throws {
         let schema = Data(#"{"v":1,"d":"Gnimu-CAN","r":20,"fill":{"vehicle":3}}"#.utf8)
         let info = Data(#"{"v":1,"build":{"rev":"abc"}}"#.utf8)
-        let id = DeviceIdentity(manufacturer: "Gnimu", model: "Gnimu-CAN", serial: "SER123",
+        let id = DeviceIdentity(manufacturer: "Gnimu Labs", model: "Gnimu-CAN", serial: "SER123",
                                 firmware: "0.1.0", hardware: "HW")
         let r = try await record(deviceInfo: CapturedDeviceInfo(identity: id, schemaJSON: schema, infoJSON: info),
                                  protocol: .gnimu, frame: Data(Sample.frameBytes), rejected: 3)

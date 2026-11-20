@@ -12,7 +12,7 @@ import Testing
 @testable import Gnimu_Monitor
 
 struct GnimuDeviceSummaryTests {
-    private let identity = DeviceIdentity(manufacturer: "Gnimu", model: "Gnimu-CAN", serial: "1958745094",
+    private let identity = DeviceIdentity(manufacturer: "Gnimu Labs", model: "Gnimu-CAN", serial: "1958745094",
                                           firmware: "0.1.0", hardware: "XIAO ESP32C6, 12V carrier v1.0")
     private let schema = GnimuSchema.parse(Data(
         #"{"v":1,"d":"Gnimu-CAN","r":20,"fill":{"vehicle":3,"power":1},"aux":{"aux_1":{"k":"Boost target","u":"kPa","s":10}}}"#.utf8))
@@ -55,7 +55,7 @@ struct GnimuDeviceSummaryTests {
 
     @Test func aSparseDeviceShowsOnlyWhatItReported() throws {
         // Identity only, as from a device that has no schema or device info.
-        let s = GnimuDeviceSummary(identity: DeviceIdentity(manufacturer: "Gnimu", serial: "42"),
+        let s = GnimuDeviceSummary(identity: DeviceIdentity(manufacturer: "Gnimu Labs", serial: "42"),
                                    schema: nil, info: nil)
         #expect(s.sections.map(\.title) == ["Device"])
         #expect(s.sections[0].rows.map(\.label) == ["Manufacturer", "Serial Number"])

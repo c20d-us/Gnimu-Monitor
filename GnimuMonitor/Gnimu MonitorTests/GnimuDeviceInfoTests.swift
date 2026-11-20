@@ -114,14 +114,14 @@ struct DeviceIdentityTests {
     @Test func recordsEachDeviceInformationCharacteristic() {
         var identity = DeviceIdentity()
         let claimed = [
-            identity.record(data("Gnimu"), for: DeviceIdentity.manufacturerUUID),
+            identity.record(data("Gnimu Labs"), for: DeviceIdentity.manufacturerUUID),
             identity.record(data("Gnimu-CAN"), for: DeviceIdentity.modelUUID),
             identity.record(data("0301821570"), for: DeviceIdentity.serialUUID),
             identity.record(data("0.1.0"), for: DeviceIdentity.firmwareUUID),
             identity.record(data("XIAO ESP32C6, 12V carrier v1.0"), for: DeviceIdentity.hardwareUUID),
         ]
         #expect(claimed == [true, true, true, true, true])
-        #expect(identity == DeviceIdentity(manufacturer: "Gnimu", model: "Gnimu-CAN", serial: "0301821570",
+        #expect(identity == DeviceIdentity(manufacturer: "Gnimu Labs", model: "Gnimu-CAN", serial: "0301821570",
                                            firmware: "0.1.0", hardware: "XIAO ESP32C6, 12V carrier v1.0"))
     }
 
